@@ -34,7 +34,7 @@ function getModel()   {
   var m = Object.assign({}, getModels()[state.modelId] || Object.values(getModels())[0]);
   // 画像モデルは共通タブ・multiPerson有効。動画モデルは個別タブをそのまま使う
   if (state.mode === 'image') {
-    m.cats = COMMON_CATS;
+    m.cats = ANIMA_SCENE_CATS;
     m.multiPerson = true;
   }
   return m;
