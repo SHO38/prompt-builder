@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prompt Builder</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <style>
+    .tpl-add-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-style: dashed !important;
+      opacity: 0.85;
+    }
+    .tpl-add-btn:hover { opacity: 1; }
+    .tpl-free-badge {
+      display: inline-block; margin-left: 6px; padding: 1px 5px;
+      font-size: 10px; line-height: 1.4; border-radius: 4px;
+      background: rgba(255,255,255,0.12); color: inherit; opacity: 0.75;
+    }
+    .tpl-register-modal {
+      max-width: 480px; width: 92vw; text-align: left;
+      max-height: 88vh; overflow-y: auto;
+    }
+    .tpl-modal-title {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 16px; font-weight: 600; margin-bottom: 16px;
+    }
+    .tpl-form { display: flex; flex-direction: column; gap: 4px; }
+    .tpl-field-label {
+      font-size: 12px; opacity: 0.7; margin-top: 12px; margin-bottom: 2px;
+    }
+    .tpl-field-label:first-child { margin-top: 0; }
+    .tpl-input {
+      width: 100%; box-sizing: border-box;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      color: inherit;
+      font-family: inherit;
+      resize: vertical;
+    }
+    .tpl-input:focus { outline: none; border-color: rgba(255,255,255,0.35); }
+    .tpl-image-preview {
+      margin-top: 8px; max-width: 100%; max-height: 160px;
+      border-radius: 8px; object-fit: cover; display: block;
+    }
+    .btn-tpl-save {
+      margin-top: 18px; width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 10px; border-radius: 8px; border: none;
+      background: #E879A0; color: #fff; font-weight: 600; font-size: 14px;
+      cursor: pointer;
+    }
+    .btn-tpl-save:disabled { opacity: 0.6; cursor: default; }
+    .btn-tpl-save:hover:not(:disabled) { filter: brightness(1.08); }
+    .tpl-save-status {
+      margin-top: 8px; font-size: 12px; text-align: center; min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-title">
+      <div class="title-main">Prompt Builder</div>
+      <div class="title-sub">AI画像・動画生成プロンプトツール</div>
+    </div>
+    <div class="header-right">
+      <div class="mode-toggle">
+        <button class="mode-btn mode-on" id="btn-mode-image">🖼️ 画像</button>
+        <button class="mode-btn" id="btn-mode-video">🎬 動画</button>
+      </div>
+      <div class="model-select-wrap">
+        <label class="model-select-label">AI</label>
+        <select id="ai-model-select" class="model-select">
+          <option value="gemini-3.5-flash-lite">3.5 Flash-Lite（標準）</option>
+          <option value="gemini-3.6-flash">3.6 Flash（高品質）</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- モデルタブ（動的生成） -->
+  <div class="model-tabs-bar" id="model-tabs"></div>
+
+  <!-- ヒントバー -->
+  <div class="hint-bar" id="hint-bar">
+    <i class="ti ti-bulb"></i>
+    <span id="hint-text"></span>
+    <button class="btn-rules" id="btn-rules">
+      <i class="ti ti-book"></i>ルールを見る
+    </button>
+  </div>
+
+  <!-- ルールパネル -->
+  <div class="rules-panel hidden" id="rules-panel">
+    <div class="rules-title"><i class="ti ti-book"></i> プロンプトルール <span class="skill-badge">スキル</span></div>
+    <div class="rules-format">
+      <div class="rules-label">Animaフォーマット</div>
+      <div>Danbooruタグ ＋ 自然言語ハイブリッド — タグは小文字・スペース区切り（score_N のみアンダーバー）</div>
+    </div>
+    <div class="rules-grid">
+      <div>
+        <div class="rules-label">タグ構築順序</div>
+        <ol class="rules-list">
+          <li>Quality（英語）: masterpiece, best quality, score_9, score_8, score_7</li>
+          <li>人数タグ: 1girl, 1boy, 2girls, duo</li>
+          <li>外見（日本語）: 髪・目・表情</li>
+          <li>服装（日本語）</li>
+          <li>ポーズ / カメラ / 構図</li>
+          <li>背景・シーン・ライティング</li>
+        </ol>
+      </div>
+      <div>
+        <div class="rules-label">特殊ルール</div>
+        <ul class="rules-list">
+          <li>タグは小文字: looking at viewer ○</li>
+          <li>アーティストタグ: @artist name 必須</li>
+          <li>重み付け: (red eyes:1.2) — 1.2〜1.4</li>
+          <li>複数キャラ: 位置で識別（左の女の子は…）</li>
+          <li>ネガティブは最小限に</li>
+          <li>顔品質: beautiful detailed face, detailed eyes</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- アイデア入力 -->
+  <div class="idea-section">
+    <div class="idea-label">
+      <i class="ti ti-edit"></i>
+      アイデア・イメージを自由に入力
+      <span class="idea-sub">— 日本語でイメージを書いてください</span>
+    </div>
+    <textarea id="idea-input" placeholder="例）夕暮れの海辺に佇む黒髪の女性。もの悲しくも美しい雰囲気で、逆光の中でシルエットが浮かび上がる…" rows="3"></textarea>
+    <div class="idea-footer">
+      <span id="char-count" class="char-count"></span>
+      <button class="btn-generate" id="btn-generate">
+        <i class="ti ti-sparkles"></i> AIでプロンプト生成
+      </button>
+    </div>
+  </div>
+
+  <!-- カテゴリタブ（動的生成） -->
+  <div class="cat-tabs" id="cat-tabs"></div>
+
+  <!-- テンプレートバー -->
+  <div class="template-bar hidden" id="template-bar">
+    <div class="template-bar-label">
+      <i class="ti ti-layout-grid"></i>
+      <span id="template-bar-title">クイックテンプレート</span>
+      <span class="template-note" id="template-note"></span>
+    </div>
+    <div class="template-list" id="template-list"></div>
+  </div>
+
+  <!-- カテゴリコンテンツ -->
+  <div class="cat-content" id="cat-content"></div>
+
+  <!-- LoRAパネル -->
+  <div class="lora-panel hidden" id="lora-panel"></div>
+
+  <!-- バリエーションタブ -->
+  <div class="variation-tabs hidden" id="variation-tabs"></div>
+
+  <!-- ポジティブプロンプト出力 -->
+  <div class="output-section">
+    <div class="output-panel" id="output-pos">
+      <div class="output-header">
+        <div class="output-header-left">
+          <span class="output-dot" id="output-dot"></span>
+          <span class="output-label">ポジティブプロンプト</span>
+          <span class="lang-badge" id="lang-badge">JA 🇯🇵</span>
+          <span class="ai-badge hidden" id="ai-badge">AI生成</span>
+          <span class="char-len" id="prompt-len"></span>
+        </div>
+        <div class="output-header-right">
+          <button class="btn-sm" id="btn-variation">
+            <i class="ti ti-copy-check"></i> バリエーション
+          </button>
+          <button class="btn-sm btn-translate" id="btn-translate">
+            <i class="ti ti-language"></i> 英語に変換
+          </button>
+          <button class="btn-sm btn-back-ja hidden" id="btn-back-ja">
+            <i class="ti ti-arrow-left"></i> JA
+          </button>
+          <button class="btn-sm btn-edit hidden" id="btn-edit">
+            <i class="ti ti-pencil"></i> 編集
+          </button>
+          <button class="btn-copy" id="btn-copy">
+            <i class="ti ti-copy"></i> コピー
+          </button>
+        </div>
+      </div>
+      <textarea class="output-edit hidden" id="output-edit" rows="6"></textarea>
+      <div class="output-body" id="output-body">
+        ← アイデアを入力するか、カテゴリのタグを選択するとプロンプトが生成されます
+      </div>
+      <div class="en-ready hidden" id="en-ready">
+        <i class="ti ti-check-circle"></i> 英語版が準備済みです
+      </div>
+    </div>
+
+    <!-- ネガティブプロンプト出力 -->
+    <div class="output-panel neg-panel hidden" id="output-neg">
+      <div class="output-header">
+        <div class="output-header-left">
+          <span class="output-dot neg-dot"></span>
+          <span class="output-label">ネガティブプロンプト</span>
+          <span class="char-len" id="neg-len"></span>
+        </div>
+        <button class="btn-copy" id="btn-copy-neg">
+          <i class="ti ti-copy"></i> コピー
+        </button>
+      </div>
+      <div class="output-body neg-body" id="neg-body"></div>
+    </div>
+  </div>
+
+  <!-- 履歴 -->
+  <div class="history-section hidden" id="history-section">
+    <div class="history-label"><i class="ti ti-history"></i> 履歴</div>
+    <div id="history-list"></div>
+  </div>
+
+  <!-- フッター -->
+  <div class="footer">
+    <button class="btn-clear" id="btn-clear">すべてクリア</button>
+  </div>
+
+  <!-- テンプレート登録モーダル -->
+  <div class="modal-overlay hidden" id="tpl-modal-overlay">
+    <div class="modal tpl-register-modal">
+      <button class="modal-close" id="tpl-modal-close"><i class="ti ti-x"></i></button>
+      <div class="tpl-modal-title"><i class="ti ti-layout-grid"></i> テンプレート登録</div>
+      <div class="tpl-form">
+        <label class="tpl-field-label" for="tpl-name">名前</label>
+        <input type="text" id="tpl-name" class="tpl-input" placeholder="例）夕暮れの海辺の少女" />
+
+        <label class="tpl-field-label" for="tpl-category">カテゴリ</label>
+        <select id="tpl-category" class="tpl-input">
+          <option value="character">キャラクター</option>
+          <option value="outfit">服装</option>
+          <option value="scene">シーン</option>
+          <option value="style">スタイル</option>
+          <option value="quality">クオリティ</option>
+        </select>
+
+        <label class="tpl-field-label" for="tpl-model">モデル</label>
+        <select id="tpl-model" class="tpl-input"></select>
+
+        <label class="tpl-field-label" for="tpl-prompt-text">プロンプト文章（自由記述）</label>
+        <textarea id="tpl-prompt-text" class="tpl-input" rows="4" placeholder="タグに縛られず、自由に文章で書いてください"></textarea>
+
+        <label class="tpl-field-label" for="tpl-image-file">画像（任意）</label>
+        <input type="file" id="tpl-image-file" class="tpl-input" accept="image/*" />
+        <img id="tpl-image-preview" class="tpl-image-preview hidden" alt="プレビュー" />
+
+        <button class="btn-tpl-save" id="btn-tpl-save"><i class="ti ti-device-floppy"></i> 保存</button>
+        <div class="tpl-save-status" id="tpl-save-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- テンプレートプレビューモーダル -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal">
+      <button class="modal-close" id="modal-close"><i class="ti ti-x"></i></button>
+      <img class="modal-img" id="modal-img" src="" alt="" />
+      <div class="modal-label" id="modal-label"></div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
