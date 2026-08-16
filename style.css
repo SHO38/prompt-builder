@@ -1,27 +1,55 @@
-/* ── リセット・変数 ─────────────────────────────────────────────── */
+/* ── リセット・変数（白ベースのライトテーマ） ───────────────────── */
 :root {
-  --bg:         #0f0f10;
-  --surface:    #1a1a1d;
-  --surface2:   #222226;
-  --border:     #2e2e35;
-  --text:       #e8e8ee;
-  --text-sub:   #9090a0;
-  --text-muted: #555565;
-  --accent:     #E879A0;
+  --bg:         #ffffff;
+  --surface:    #f7f7f9;
+  --surface2:   #eef0f4;
+  --border:     #e3e3ea;
+  --text:       #1c1c22;
+  --text-sub:   #5c5c6b;
+  --text-muted: #6b6b7a; /* 白背景に対してWCAG AA(4.5:1)以上のコントラストを確保 */
+  --accent:     #C23B72; /* 元の#E879A0を白背景でも読めるよう濃くしたブランドピンク（コントラスト比 約5:1） */
   --radius:     8px;
   --font:       -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --mono:       'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── メインレイアウト（2カラム） ───────────────────────────────────
+   左: アイデア入力・タグ調整（縦に長くなるのでページと一緒にスクロール）
+   右: 生成ボタン・出力結果・LoRA・履歴（画面に固定して常に見えるようにする） */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 1fr);
+  align-items: start;
+  gap: 20px;
+  padding: 0 20px;
+}
+.col-left { min-width: 0; }
+.col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+/* 画面が狭い場合は1カラムに戻し、右カラムの追従（sticky）も解除する */
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; padding: 0 16px; gap: 16px; }
+  .col-right { position: static; max-height: none; overflow-y: visible; }
+}
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.6;
-  max-width: 860px;
+  /* 画面全体を使えるよう、以前の860px固定幅から大幅に拡張（超ワイド画面向けに上限のみ設定） */
+  max-width: 1680px;
   margin: 0 auto;
-  padding-bottom: 80px;
+  padding-bottom: 40px;
 }
 button { font-family: var(--font); cursor: pointer; }
 textarea { font-family: var(--font); }
@@ -71,9 +99,9 @@ textarea { font-family: var(--font); }
   min-width:80px;
 }
 .model-tab.model-tab-on { }
-.model-tab:hover { border-color: #9D7FEA40; }
+.model-tab:hover { border-color: #6D28D950; }
 .model-icon { font-size:18px; line-height:1; }
-.model-name { font-size:12px; font-weight:600; color:var(--text-primary); white-space:nowrap; }
+.model-name { font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; }
 .model-label { font-size:10px; color:var(--text-muted); white-space:nowrap; }
 
 .badge-model {
@@ -204,7 +232,6 @@ textarea { font-family: var(--font); }
 #idea-input::placeholder { color: var(--text-muted); }
 .idea-footer {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   margin-top: 8px;
 }
@@ -225,29 +252,101 @@ textarea { font-family: var(--font); }
 .btn-generate:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-generate:not(:disabled):hover { opacity: 0.85; }
 
+/* ── 生成ボタン（結果とアイデア入力の間の独立セクション） ────────── */
+.generate-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.generate-bar-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.generate-bar-hint .ti { font-size: 12px; }
+
+.idea-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.idea-hint .ti { color: var(--accent); font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+
+/* ── タグ調整セクションの区切り ─────────────────────────────────── */
+/* アイデア入力＋生成結果（上）と、タグでの詳細調整（下）を視覚的に分ける見出し */
+.builder-divider {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 14px 20px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+.builder-divider .ti { color: var(--accent); font-size: 13px; flex-shrink: 0; }
+
 /* ── カテゴリタブ ───────────────────────────────────────────────── */
+/* 10カテゴリに増えたため、横スクロールではなく2段に折り返して
+   すべてのタブが常に見える状態にしている（横スクロールだと後半のカテゴリの
+   存在に気づきにくいため） */
 .cat-tabs {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px 4px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+  background: var(--surface);
+}
+.cat-tabs-loading {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cat-tabs-loading::before {
+  content: '';
+  width: 12px; height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 .cat-tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 11px 16px;
+  padding: 9px 14px;
   background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--text-sub);
   font-size: 13px;
   flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
-  margin-bottom: -1px;
+  transition: all 0.15s;
   position: relative;
 }
-.cat-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
-.cat-tab:hover:not(.active) { color: var(--text); }
+/* アクティブなタブだけ背景色付きの「カード」にして、今どこを見ているか一目で分かるようにする。
+   2段に折り返す都合上、下のコンテンツと縁を繋げる表現ではなく独立したカードにしている */
+.cat-tab.active {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--accent)12;
+  border-color: var(--accent)50;
+}
+.cat-tab:hover:not(.active) { color: var(--text); background: var(--surface2); }
 .cat-badge {
   background: var(--accent)80;
   color: white;
@@ -299,6 +398,23 @@ textarea { font-family: var(--font); }
 }
 .tpl-btn:hover { border-color: var(--accent)60; color: var(--accent); }
 .tpl-btn.tpl-on { border-color: var(--accent); color: var(--accent); background: var(--accent)12; }
+/* テンプレートボタン＋編集ボタンをまとめるラッパー（編集ボタンを右上に重ねて配置するため） */
+.tpl-btn-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
+.tpl-edit-btn {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 9px;
+  transition: all 0.15s;
+}
+.tpl-edit-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent)10; }
 .tpl-img {
   width: 60px;
   height: 60px;
@@ -309,6 +425,18 @@ textarea { font-family: var(--font); }
 
 /* ── カテゴリコンテンツ ─────────────────────────────────────────── */
 .cat-content { padding: 16px 20px; }
+
+/* 複数の元カテゴリを1つのタブにまとめた場合の小見出し（例: 「キャラクター」タブ内の
+   「顔・目・表情」「髪型・髪色」の区切り） */
+.subcat-heading {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 18px 0 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--accent)25;
+}
+.subcat-heading:first-child { margin-top: 0; }
 
 .field { margin-bottom: 16px; }
 .field-label {
@@ -363,14 +491,20 @@ textarea { font-family: var(--font); }
   justify-content: space-between;
   padding: 9px 12px;
 }
-.person-header-left { display: flex; align-items: center; gap: 8px; }
+.person-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
 .person-label {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 20px;
 }
-.person-sub { font-size: 11px; }
+.person-sub {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .person-body { padding: 12px; }
 .btn-remove-person {
   padding: 2px 8px;
@@ -383,7 +517,7 @@ textarea { font-family: var(--font); }
   align-items: center;
   gap: 3px;
 }
-.btn-remove-person:hover { color: #EF4444; border-color: #EF4444; }
+.btn-remove-person:hover { color: #DC2626; border-color: #DC2626; }
 .btn-add-person {
   width: 100%;
   padding: 10px;
@@ -401,6 +535,91 @@ textarea { font-family: var(--font); }
 }
 .btn-add-person:hover { background: var(--accent)10; }
 
+/* ── LoRAパネル ─────────────────────────────────────────────────── */
+/* 旧バージョンはこのブロックが丸ごと存在せず、LoRAプレビュー画像のサイズも
+   指定されていなかった。画像が非同期で読み込まれるたびにパネルの高さが変わり、
+   スクロール中にページ全体がガクガク動く原因になっていたため、
+   幅・高さを固定してレイアウトのズレ（CLS）が起きないようにしている。 */
+.lora-panel { padding: 14px 20px; border-top: 1px solid var(--border); }
+.lora-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+/* 折りたたみ中は本文が無いのでヘッダー直下の余白は付けず、展開時のみ本文とのgapを空ける */
+.lora-list, .lora-empty { margin-top: 10px; }
+.lora-header .ti { color: var(--accent); font-size: 14px; flex-shrink: 0; }
+.lora-header > .ti:last-child { color: var(--text-muted); font-size: 13px; }
+.lora-note { color: var(--text-muted); font-weight: 400; font-size: 11px; }
+.lora-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.lora-empty code {
+  background: var(--surface2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+.lora-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.lora-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--text-sub);
+  text-align: left;
+  transition: all 0.15s;
+  max-width: 260px;
+}
+.lora-btn:hover { border-color: var(--accent)60; color: var(--accent); }
+.lora-btn.lora-on { border-color: var(--accent); background: var(--accent)12; color: var(--accent); }
+/* 実画像・フォールバックとも同じ寸法にして、読み込み前後でボタンサイズが変わらないようにする */
+.lora-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--border);
+}
+.lora-img-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  font-size: 15px;
+}
+.lora-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
+.lora-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lora-trigger {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lora-on .lora-trigger { color: inherit; opacity: 0.75; }
+
 /* ── バリエーションタブ ─────────────────────────────────────────── */
 .variation-tabs { display: flex; gap: 5px; padding: 0 20px 10px; }
 .var-tab {
@@ -416,7 +635,8 @@ textarea { font-family: var(--font); }
 .var-tab.var-tab-on { border-color: var(--accent); background: var(--accent)18; color: var(--accent); }
 
 /* ── 出力エリア ─────────────────────────────────────────────────── */
-.output-section { padding: 0 20px 16px; border-top: 1px solid var(--border); }
+/* 右カラムでは常に生成ボタンのすぐ下に来るため、上の罫線で区切りを示す */
+.output-section { padding: 0 20px 16px; border-top: 1px solid var(--border); padding-top: 14px; }
 
 .output-panel {
   background: var(--surface);
@@ -425,6 +645,20 @@ textarea { font-family: var(--font); }
   overflow: hidden;
   margin-top: 12px;
 }
+
+/* 入力内容の要約（アイデア文章／タグ／LoRA） */
+.output-inputs {
+  padding: 10px 14px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.oi-row { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; line-height: 1.6; }
+.oi-row .ti { color: var(--accent); font-size: 13px; margin-top: 2px; flex-shrink: 0; }
+.oi-label { color: var(--text-muted); font-weight: 600; flex-shrink: 0; white-space: nowrap; }
+.oi-val { color: var(--text-sub); word-break: break-word; white-space: pre-line; }
 .neg-panel { border-color: var(--border); margin-top: 8px; }
 
 .output-header {
@@ -459,7 +693,7 @@ textarea { font-family: var(--font); }
   color: var(--text-sub);
   border: 1px solid var(--border);
 }
-.lang-en { background: #1e3a5f; color: #60a5fa; border-color: #3b82f640; }
+.lang-en { background: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
 .ai-badge {
   font-size: 10px;
   padding: 2px 7px;
@@ -485,8 +719,8 @@ textarea { font-family: var(--font); }
 }
 .btn-sm:hover { border-color: var(--accent)60; color: var(--accent); }
 .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-translate { color: #3B82F6; border-color: #3B82F650; }
-.btn-translate:hover { border-color: #3B82F6; }
+.btn-translate { color: #2563EB; border-color: #2563EB50; }
+.btn-translate:hover { border-color: #2563EB; }
 
 .btn-copy {
   display: flex;
@@ -540,10 +774,10 @@ textarea { font-family: var(--font); }
   align-items: center;
   gap: 5px;
 }
-.en-ready .ti { color: #22C55E; }
+.en-ready .ti { color: #16A34A; }
 
 /* ── 履歴 ───────────────────────────────────────────────────────── */
-.history-section { padding: 0 20px 12px; }
+.history-section { padding: 12px 20px; border-top: 1px solid var(--border); }
 .history-label {
   font-size: 11px;
   color: var(--text-muted);
@@ -571,6 +805,18 @@ textarea { font-family: var(--font); }
 .hist-lang  { font-weight: 700; flex-shrink: 0; }
 .hist-text  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .hist-date  { flex-shrink: 0; color: var(--text-muted); }
+.history-more-wrap { margin-top: 2px; }
+.btn-history-more {
+  width: 100%;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 11px;
+  transition: all 0.15s;
+}
+.btn-history-more:hover { border-color: var(--accent)60; color: var(--accent); }
 
 /* ── フッター ───────────────────────────────────────────────────── */
 .footer { padding: 12px 20px; }
@@ -582,7 +828,7 @@ textarea { font-family: var(--font); }
   color: var(--text-sub);
   font-size: 12px;
 }
-.btn-clear:hover { border-color: #EF444460; color: #EF4444; }
+.btn-clear:hover { border-color: #DC262660; color: #DC2626; }
 
 /* ── モーダル ───────────────────────────────────────────────────── */
 .modal-overlay {
@@ -619,3 +865,49 @@ textarea { font-family: var(--font); }
   margin-bottom: 10px;
 }
 .modal-label { text-align: center; font-size: 13px; font-weight: 500; }
+
+/* ── トースト通知 ───────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2000;
+  max-width: 340px;
+  width: calc(100% - 40px);
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid #DC2626;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  animation: toast-in 0.2s ease;
+}
+.toast-info { border-left-color: #2563EB; }
+.toast .ti { flex-shrink: 0; margin-top: 1px; font-size: 14px; }
+.toast-error .ti { color: #DC2626; }
+.toast-info .ti  { color: #2563EB; }
+.toast span { flex: 1; word-break: break-word; }
+.toast-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0 0 0 4px;
+}
+.toast-close:hover { color: var(--text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 480px) {
+  .toast-container { left: 12px; right: 12px; bottom: 12px; max-width: none; width: auto; }
+}

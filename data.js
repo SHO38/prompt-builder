@@ -1,14 +1,16 @@
 // ── 共通ヘルパー ─────────────────────────────────────────────────
+// クオリティタグの日本語→英語変換（Notionの新タグ一覧にすでに英語版がある単語は
+// ここに無くてもフォールバックでそのまま使われる）
 const QEN = {
   "マスタピース":"masterpiece","最高品質":"best quality","ハイクオリティ":"high quality",
   "スコア9":"score_9","スコア8":"score_8","スコア7":"score_7",
   "スコア8up":"score_8_up","スコア7up":"score_7_up",
-  "年2025":"year 2025","最新":"newest","とても美的":"very aesthetic",
+  "年2025":"year 2025","年2026":"year 2026","最新":"newest","とても美的":"very aesthetic",
   "高解像度":"highres","absurdres":"absurdres","公式アート":"official art",
   "風景":"scenery",
 };
-const REN  = { "安全":"safe","軽い色気":"sensitive" };
-const GMAP = { "少女":"girl","少年":"boy","子供":"child","成人女性":"woman","成人男性":"man" };
+// 人物属性のうち「男性寄り」と判定するもの（1boy/1girlの人数タグ判定に使用）
+const MALE_PERSON_TYPES = ["少年","成人男性","青年","おじいさん"];
 const POS  = ["左の女の子","右の女の子","中央の女の子","4人目の女の子"];
 const BPOS = ["左の男の子","右の男の子","中央の男の子","4人目の男の子"];
 
@@ -16,85 +18,228 @@ function fGet(form, key) {
   const v = form[key] || {};
   return [...(v.chips || []), (v.text || '').trim()].filter(Boolean);
 }
-function mkPerson() {
-  return { gender:"少女", expression:[], hair:[], eyes:[], outfit:[], accessory:[] };
+
+// 人物ごとのフィールド定義（imageCatsのisPersonカテゴリをまとめたもの）から
+// 新規の人物オブジェクトを作る。単一選択は文字列、複数選択は配列で初期化する。
+// どのフィールドも初期状態では何も選択しない（以前はpersonTypeだけ「少女」が
+// 自動選択されていたが、ユーザーが意図せず選んだ状態になるため廃止）。
+function mkPerson(imageCats) {
+  const p = {};
+  (imageCats || []).forEach(function(cat) {
+    if (!cat.isPerson) return;
+    cat.personFields.forEach(function(f) {
+      p[f.key] = f.single ? '' : [];
+    });
+  });
+  return p;
 }
 
-const CHAR_CHIPS = {
-  gender:     { label:"タイプ", chips:["少女","少年","子供","成人女性","成人男性"], single:true },
-  expression: { label:"表情",   chips:["笑顔","喜び","クール","照れ顔","驚き","悲しそう","怒り","恥ずかしそう","無表情","眠そう","得意げ","泣きそう","にっこり","困惑","含み笑い","キリっとした"] },
-  hair:       { label:"髪色・髪型", chips:["黒髪","金髪","茶髪","白髪","赤髪","青髪","ピンク髪","紫髪","銀髪","橙髪","グラデーション髪","ロングヘア","ショートヘア","ミディアムヘア","セミロング","ツインテール","ポニーテール","ツーサイドアップ","お下げ","ウェーブヘア","ボブカット","サイドテール","アシメ"] },
-  eyes:       { label:"目",     chips:["青い瞳","緑の瞳","赤い瞳","茶色の瞳","金の瞳","紫の瞳","オッドアイ","ヘーゼルの瞳","橙の瞳","銀の瞳","澄んだ瞳","潤んだ瞳","大きな瞳","細い目","垂れ目","つり目"] },
-};
-const OUTFIT_CHIPS = {
-  outfit:    { label:"服装",         chips:["セーラー服","制服","カジュアル","ワンピース","着物","浴衣","スーツ","パーカー","ニット","カーディガン","Yシャツ","ブレザー","コート","水着","ゴスロリ","メイド服","チャイナドレス","ジャージ","ファンタジーアーマー","魔法少女","ドレス"] },
-  accessory: { label:"アクセサリー", chips:["ネックレス","チョーカー","イヤリング","ヘアピン","リボン","ヘアバンド","ベレー帽","帽子","眼鏡","サングラス","手袋","マント","指輪","腕輪","ブーツ","マフラー","スカーフ","ヘッドフォン","ヘッドドレス"] },
-};
+// isPersonカテゴリのフィールド定義を、カテゴリ順を保ったままフラットにする。
+// 各フィールドは自身の元カテゴリ順（categoryOrder）をすでに持っている
+// （複数の元カテゴリを1つのタブにまとめた後も、Animaの行分け等で元の分類を参照できるように）。
+function personFieldDefs(imageCats) {
+  const out = [];
+  (imageCats || []).forEach(function(cat) {
+    if (!cat.isPerson) return;
+    cat.personFields.forEach(function(f) { out.push(f); });
+  });
+  return out;
+}
 
+// person-sub（折りたたみヘッダーの要約）用: personTypeを先頭に、他のフィールドから最大2つ。
+// 何も選択されていなければ「未選択」と表示する（以前は「少女」がデフォルト表示されていた）。
+function personSummaryText(p, imageCats) {
+  const defs = personFieldDefs(imageCats);
+  const personType = p.personType || '';
+  const rest = [];
+  defs.forEach(function(f) {
+    if (f.key === 'personType') return;
+    const v = p[f.key];
+    if (Array.isArray(v)) rest.push.apply(rest, v);
+    else if (v) rest.push(v);
+  });
+  const label = personType || '未選択';
+  if (!rest.length) return label;
+  return label + '・' + rest.slice(0, 2).join('・') + (rest.length > 2 ? ' 他' : '');
+}
+
+// Notion Tagsデータベースの行配列（Workerの /api/tags が返す形）を、
+// アプリで使うタブ（5グループ）に組み立てる。
+// 元の10カテゴリ（categoryOrder 1〜10）はタグの粒度としては維持しつつ、
+// UI上は近い性質のもの同士を1つのタブにまとめて表示する:
+//   キャラクター(1-3) / 衣装(4-5) / ポーズ・構図・視点(6) / シーン(7-8) / スタイル・品質(9-10)
+// 1〜6が「人物ごと」に選ぶグループ（isPerson: true）、7〜10が共通グループ。
+const PERSON_CATEGORY_MAX_ORDER = 6;
+const IMAGE_GROUPS = [
+  { id: 'char',   label: 'キャラクター',      icon: '👤', orders: [1, 2, 3] },
+  { id: 'outfit', label: '衣装',              icon: '👗', orders: [4, 5] },
+  { id: 'pose',   label: 'ポーズ・構図・視点', icon: '🕺', orders: [6] },
+  { id: 'scene',  label: 'シーン',            icon: '🏙️', orders: [7, 8] },
+  { id: 'style',  label: 'スタイル・品質',     icon: '🎨', orders: [9, 10] },
+];
+
+function buildImageCatsFromTags(tagRows) {
+  const byOrder = {};
+  (tagRows || []).forEach(function(row) {
+    const co = row.categoryOrder;
+    if (!byOrder[co]) byOrder[co] = { majorCategory: row.majorCategory, rows: [] };
+    byOrder[co].rows.push(row);
+  });
+
+  return IMAGE_GROUPS.map(function(group) {
+    const isPerson = group.orders[0] <= PERSON_CATEGORY_MAX_ORDER;
+    const fieldDefs = [];
+    group.orders.forEach(function(co) {
+      const bucket = byOrder[co];
+      if (!bucket) return;
+      const rows = bucket.rows.slice().sort(function(a, b){ return a.fieldOrder - b.fieldOrder; });
+      rows.forEach(function(r) {
+        // groupLabelは元カテゴリ名（タブ内の小見出しに使う）、categoryOrderはAnimaの行分け等に使う
+        fieldDefs.push({
+          key: r.fieldKey, label: r.label, chips: r.chips, single: !!r.single,
+          categoryOrder: co, groupLabel: bucket.majorCategory,
+        });
+      });
+    });
+    return {
+      id: group.id,
+      label: group.label,
+      icon: group.icon,
+      isPerson: isPerson,
+      fields: isPerson ? [] : fieldDefs,
+      personFields: isPerson ? fieldDefs : [],
+    };
+  }).filter(function(g){ return g.fields.length > 0 || g.personFields.length > 0; });
+}
+
+// ── Animaプロンプト組み立て ─────────────────────────────────────
+// カテゴリ1〜3（キャラクター基本／顔・目・表情／髪型・髪色）を「外見」、
+// 4〜5（衣装・ファッション／アクセサリー・小物）を「服装」、
+// 6（ポーズ・構図・視点）を「ポーズ」として、それぞれ別の行にする。
+// カテゴリ10（品質・質感・レンダリング）のうち quality フィールドは英語に変換して先頭へ、
+// それ以外（リアル質感向上タグ等）は末尾に回す。
 function animaBuild(form) {
-  const people = (form.people && form.people.length > 0) ? form.people : [mkPerson()];
+  const cats = form.imageCats || [];
+  const personDefs = personFieldDefs(cats);
+  const appearanceKeys = personDefs.filter(function(d){ return d.categoryOrder <= 3 && d.key !== 'personType'; }).map(function(d){ return d.key; });
+  const outfitKeys     = personDefs.filter(function(d){ return d.categoryOrder === 4 || d.categoryOrder === 5; }).map(function(d){ return d.key; });
+  // ポーズ・構図・視点（カテゴリ6）は服装とは別行にし、人物ごとに指定できるようにする
+  const poseKeys        = personDefs.filter(function(d){ return d.categoryOrder === 6; }).map(function(d){ return d.key; });
+
+  const people = (form.people && form.people.length > 0) ? form.people : [mkPerson(cats)];
   const count  = people.length;
-  const Q = fGet(form,"quality").map(function(q){ return QEN[q]||q; });
-  const R = REN[(form.rating && form.rating.chips && form.rating.chips[0])] ||
-            (form.rating && form.rating.chips && form.rating.chips[0]) || "";
-  const boyCount  = people.filter(function(p){ var g=GMAP[p.gender||"少女"]; return g==="boy"||g==="man"; }).length;
+
+  function isBoyPerson(p) { return MALE_PERSON_TYPES.indexOf(p.personType) >= 0; }
+  function collect(p, keys) {
+    return keys.reduce(function(a, k) {
+      const v = p[k];
+      return a.concat(Array.isArray(v) ? v : (v ? [v] : []));
+    }, []);
+  }
+
+  const Q = fGet(form, "quality").map(function(q){ return QEN[q] || q; });
+
+  const boyCount  = people.filter(isBoyPerson).length;
   const girlCount = count - boyCount;
   var countTag = "";
   if (count === 1) {
-    var isBoy = GMAP[people[0].gender||"少女"]==="boy"||GMAP[people[0].gender||"少女"]==="man";
-    countTag = (isBoy?"1boy":"1girl")+", solo";
+    countTag = (isBoyPerson(people[0]) ? "1boy" : "1girl") + ", solo";
   } else {
-    var cParts=[];
-    if (girlCount>0) cParts.push(girlCount===1?"1girl":girlCount+"girls");
-    if (boyCount>0)  cParts.push(boyCount===1?"1boy":boyCount+"boys");
-    countTag = cParts.join(", ")+", duo";
+    var cParts = [];
+    if (girlCount > 0) cParts.push(girlCount === 1 ? "1girl" : girlCount + "girls");
+    if (boyCount  > 0) cParts.push(boyCount  === 1 ? "1boy"  : boyCount  + "boys");
+    countTag = cParts.join(", ") + ", duo";
   }
-  var allSame = boyCount===0||girlCount===0;
-  var charLines=[], outfitLines=[];
-  if (count===1) {
-    var p=people[0];
-    charLines  = [].concat(p.expression||[]).concat(p.hair||[]).concat(p.eyes||[]);
-    outfitLines= [].concat(p.outfit||[]).concat(p.accessory||[]);
+  var allSame = boyCount === 0 || girlCount === 0;
+
+  var charLines = [], outfitLines = [], poseLines = [];
+  if (count === 1) {
+    charLines   = collect(people[0], appearanceKeys);
+    outfitLines = collect(people[0], outfitKeys);
+    poseLines   = collect(people[0], poseKeys);
   } else {
-    charLines = people.map(function(p,i){
-      var f=[].concat(p.expression||[]).concat(p.hair||[]).concat(p.eyes||[]);
-      if(!f.length) return null;
-      var isBoy=GMAP[p.gender||"少女"]==="boy"||GMAP[p.gender||"少女"]==="man";
-      var label=allSame?(isBoy?BPOS:POS)[i]||((i+1)+"人目"):(isBoy?"男の子":"女の子");
-      return label+"は"+f.join("、")+".";
+    charLines = people.map(function(p, i) {
+      var f = collect(p, appearanceKeys);
+      if (!f.length) return null;
+      var isBoy = isBoyPerson(p);
+      var label = allSame ? ((isBoy ? BPOS : POS)[i] || ((i + 1) + "人目")) : (isBoy ? "男の子" : "女の子");
+      return label + "は" + f.join("、") + ".";
     }).filter(Boolean);
-    outfitLines = people.map(function(p,i){
-      var f=[].concat(p.outfit||[]).concat(p.accessory||[]);
-      if(!f.length) return null;
-      var isBoy=GMAP[p.gender||"少女"]==="boy"||GMAP[p.gender||"少女"]==="man";
-      var label=allSame?(isBoy?BPOS:POS)[i]||((i+1)+"人目"):(isBoy?"男の子":"女の子");
-      return label+"の服装: "+f.join("、")+".";
+    outfitLines = people.map(function(p, i) {
+      var f = collect(p, outfitKeys);
+      if (!f.length) return null;
+      var isBoy = isBoyPerson(p);
+      var label = allSame ? ((isBoy ? BPOS : POS)[i] || ((i + 1) + "人目")) : (isBoy ? "男の子" : "女の子");
+      return label + "の服装: " + f.join("、") + ".";
+    }).filter(Boolean);
+    poseLines = people.map(function(p, i) {
+      var f = collect(p, poseKeys);
+      if (!f.length) return null;
+      var isBoy = isBoyPerson(p);
+      var label = allSame ? ((isBoy ? BPOS : POS)[i] || ((i + 1) + "人目")) : (isBoy ? "男の子" : "女の子");
+      return label + "のポーズ・構図: " + f.join("、") + ".";
     }).filter(Boolean);
   }
-  var pose=fGet(form,"pose");
-  var Sc=["scene","background","lighting","atmosphere"].reduce(function(a,k){ return a.concat(fGet(form,k)); },[]);
-  var St=["artStyle","colorPalette"].reduce(function(a,k){ return a.concat(fGet(form,k)); },[]);
-  var rows=[];
-  if(Q.length||R) rows.push([].concat(Q).concat(R?[R]:[]).join(", "));
-  if(countTag) rows.push(countTag);
-  if(count===1){
-    if(charLines.length)   rows.push(charLines.join(", "));
-    if(outfitLines.length) rows.push(outfitLines.join(", "));
-    if(pose.length)        rows.push(pose.join(", "));
+
+  // 人物以外の各グループ（シーン／スタイル・品質など）をグループ順のまま1行ずつ出力。
+  // ただし quality フィールド（先頭のQで処理済み）と、元カテゴリ10（品質・質感・レンダリング）の
+  // quality以外のフィールド（リアル質感向上タグ等）はここでは除外し、末尾にまとめる。
+  // 「スタイル・品質」タブは元カテゴリ9と10がまとまっているため、フィールド単位で振り分ける。
+  var globalLines = [];
+  var qualityExtra = [];
+  cats.filter(function(c){ return !c.isPerson; }).forEach(function(c) {
+    var vals = [];
+    c.fields.forEach(function(f) {
+      if (f.key === 'quality') return;
+      if (f.categoryOrder === 10) { qualityExtra = qualityExtra.concat(fGet(form, f.key)); return; }
+      vals = vals.concat(fGet(form, f.key));
+    });
+    if (vals.length) globalLines.push(vals.join(", "));
+  });
+
+  var rows = [];
+  if (Q.length) rows.push(Q.join(", "));
+  if (countTag) rows.push(countTag);
+  if (count === 1) {
+    if (charLines.length)   rows.push(charLines.join(", "));
+    if (outfitLines.length) rows.push(outfitLines.join(", "));
+    if (poseLines.length)   rows.push(poseLines.join(", "));
   } else {
     charLines.forEach(function(l){ rows.push(l); });
     outfitLines.forEach(function(l){ rows.push(l); });
-    if(pose.length)        rows.push(pose.join(", "));
+    poseLines.forEach(function(l){ rows.push(l); });
   }
-  if(St.length) rows.push(St.join(", "));
-  if(Sc.length) rows.push(Sc.join(", "));
-  return rows.filter(function(r){ return r&&r.trim(); }).join("\n");
+  globalLines.forEach(function(l){ rows.push(l); });
+  if (qualityExtra.length) rows.push(qualityExtra.join(", "));
+
+  return rows.filter(function(r){ return r && r.trim(); }).join("\n");
 }
 
-function genericBuild(model, form) {
-  var groups = model.cats.map(function(cat){
-    return cat.fields.reduce(function(a,f){ return a.concat(fGet(form,f.key)); },[]);
-  }).filter(function(g){ return g.length>0; });
+// Anima以外の画像モデル（Krea 2 / GPT Image 2 / Nano Banana 2）共通のビルダー。
+// タグ構成が画像モデル間で共通化されたため、人物・服装・共通カテゴリを
+// カテゴリ順にカンマ区切りでまとめるシンプルな形式にしている。
+function commonImageBuild(form) {
+  const cats = form.imageCats || [];
+  const people = (form.people && form.people.length > 0) ? form.people : [mkPerson(cats)];
+  const groups = [];
+
+  cats.forEach(function(cat) {
+    if (cat.isPerson) {
+      const vals = [];
+      people.forEach(function(p) {
+        cat.personFields.forEach(function(f) {
+          const v = p[f.key];
+          if (Array.isArray(v)) vals.push.apply(vals, v);
+          else if (v) vals.push(v);
+        });
+      });
+      if (vals.length) groups.push(vals);
+    } else {
+      const vals = [];
+      cat.fields.forEach(function(f){ vals.push.apply(vals, fGet(form, f.key)); });
+      if (vals.length) groups.push(vals);
+    }
+  });
   return groups.map(function(g){ return g.join(", "); }).join("\n");
 }
 
@@ -119,33 +264,33 @@ function mkGenPrompt(model, idea, fs, people) {
 
     krea2: "あなたはKrea 2向けの高品質画像生成プロンプト専門家です。\n\n" +
       "【Krea 2プロンプトの絶対ルール】\n" +
-      "・自然な英語フレーズで（タグの羅列ではなく）\n" +
+      "・自然な日本語の文章で（タグの羅列ではなく、情景が伝わる描写で）\n" +
       "・構成順: 被写体→スタイル→シーン→ライティング→ムード→品質\n" +
       "・ネガティブプロンプトは絶対に含めない\n\n" +
       "【Krea 2で品質を上げるテクニック】\n" +
-      "・ライティングが最重要: golden hour, chiaroscuro, studio lighting\n" +
-      "・品質タグで締める: highly detailed, award-winning photography, 8K UHD\n" +
-      "・カラーパレットを明示\n\n" +
-      "【高品質例】\nyoung woman with long black hair, photorealistic cinematic style,\ngolden hour lighting, bokeh, serene mood,\nhighly detailed, award-winning photography, 8K UHD",
+      "・ライティングの描写が最重要（ゴールデンアワー、明暗のコントラスト、スタジオ照明など）\n" +
+      "・文末は「非常に精細で、受賞歴のある写真のような品質」のような品質表現で締める\n" +
+      "・色調・カラーパレットも具体的に描写する\n\n" +
+      "【高品質な出力例】\n黒髪の長い若い女性、フォトリアルでシネマティックなスタイル、\nゴールデンアワーの光、ボケ味のある背景、穏やかな雰囲気、\n非常に精細で受賞歴のある写真のような品質、8K相当の解像感",
 
     gptImage2: "あなたはGPT Image 2向けの高品質画像生成プロンプト専門家です。\n\n" +
       "【GPT Image 2プロンプトの絶対ルール】\n" +
-      "・詳細な文章形式で記述する（タグ並列NG）\n" +
-      "・「Set in [場所].」で場所を指定\n" +
-      "・「The mood is [ムード].」でムードを指定\n" +
-      "・「Rendered in [スタイル] style.」でスタイルを最後に指定\n" +
+      "・詳細な日本語の文章形式で記述する（タグ並列NG）\n" +
+      "・「〜を舞台にする。」のように場所を1文で指定\n" +
+      "・「雰囲気は〜。」のようにムードを1文で指定\n" +
+      "・「〜のスタイルで描写する。」のようにスタイルを最後に1文で指定\n" +
       "・ネガティブプロンプトは絶対に含めない\n\n" +
-      "【高品質例】\nA beautiful young woman with long flowing black hair.\nSet in a cherry blossom park in spring.\nSoft golden light filters through the blossoms.\nThe mood is serene and romantic.\nRendered in photorealistic digital art style. Ultra high quality.",
+      "【高品質な出力例】\n長く流れるような黒髪を持つ、美しい若い女性。\n春の桜の公園を舞台にする。\n花びらの間から柔らかな金色の光が差し込む。\n雰囲気は穏やかでロマンティック。\nフォトリアルなデジタルアートのスタイルで描写する。最高品質。",
 
     nanoBanana2: "あなたはNano Banana 2向けの高品質画像生成プロンプト専門家です。\n\n" +
       "【Nano Banana 2プロンプトの絶対ルール】\n" +
-      "・シンプルで強力なキーワードを厳選する（5〜12個が最適）\n" +
+      "・シンプルで強力な日本語のキーワード・短いフレーズを厳選する（5〜12個が最適）\n" +
       "・構成順: 被写体→ムード→シーン→スタイル→クオリティ\n" +
       "・ネガティブプロンプトは絶対に含めない\n\n" +
       "【品質を上げるテクニック】\n" +
-      "・epic, cinematic, dramatic でスケール感UP\n" +
-      "・volumetric light, HDR, bokeh で視覚クオリティUP\n\n" +
-      "【高品質例】\nfemale warrior, epic, ancient forest, golden armor,\ndramatic backlighting, volumetric light, fantasy art, HDR, cinematic",
+      "・「壮大」「シネマティック」「ドラマチック」でスケール感UP\n" +
+      "・「ボリューメトリックライト」「HDR」「ボケ味」で視覚クオリティUP\n\n" +
+      "【高品質な出力例】\n女戦士, 壮大, 古代の森, 黄金の鎧,\nドラマチックな逆光, ボリューメトリックライト, ファンタジーアート, HDR, シネマティック",
 
     wan: "あなたはWAN向けの高品質AI動画生成プロンプト専門家です。\n\n" +
       "【WANプロンプトの絶対ルール】\n" +
@@ -179,14 +324,38 @@ function mkGenPrompt(model, idea, fs, people) {
 
   var guide = modelGuides[model.id] || ("あなたは"+model.name+"向けのAI"+(isVid?"動画":"画像")+"生成プロンプト専門家です。");
   var parts = [];
-  if (idea) parts.push("【アイデア】\n"+idea);
-  if (fs)   parts.push("【選択条件】\n"+fs);
+  if (idea) parts.push("【アイデア（このイメージを核に、具体的な描写へ大きく膨らませる出発点）】\n"+idea);
+  if (fs)   parts.push("【必ず反映する要素（単語をそのまま並べるのではなく、描写に発展させること）】\n"+fs);
 
   return guide + "\n\n" + parts.join("\n\n") +
-    "\n\n【出力フォーマット厳守】\n" +
+    "\n\n【最重要: 単なる要約・繰り返しではなく、想像力を使って肉付けすること】\n" +
+    "・上記のアイデアやタグは最低限の骨組みに過ぎません。単語やアイデア文をそのまま出力することは禁止です。\n" +
+    "・プロの"+(isVid?"映像ディレクター":"イラストレーター／フォトグラファー")+"として、髪や瞳・肌の質感、光の当たり方や色温度、表情や仕草の機微、構図、背景の情景など、指定されていない部分も含めて具体的に描写を追加してください。\n" +
+    "・指定された要素（アイデア・タグ）は一つも欠かさず反映しつつ、そこにないディテールも積極的に創作して補い、"+model.name+"らしい高品質なプロンプトに仕上げてください。\n" +
+    "・「かわいい」「美しい」のような抽象語だけで終わらせず、なぜそう感じるかが伝わる具体的な表現を選んでください。\n\n" +
+    "【出力フォーマット厳守】\n" +
     "・ポジティブプロンプトのみ出力。ネガティブは絶対含めない。\n" +
     "・空白行なし（カテゴリは改行1つで区切る）。\n" +
-    "・前置き・説明文なし。プロンプト本文のみ。";
+    "・前置き・説明文なし。プロンプト本文のみ。\n" +
+    "・上記モデル別ルールで英語指定された部分（品質・スコアタグ等）を除き、必ず日本語で記述すること。英語への変換はこの後の別ステップ（「英語に変換」ボタン）で行うため、ここでは勝手に英語化しないこと。";
+}
+
+// ネガティブプロンプト生成。ポジティブ側と同時にAIで作成し、常に英語のカンマ区切り
+// キーワードで出力する（ポジティブと違い、JA/EN切り替えは行わない）。
+function mkNegPrompt(model, idea, fs) {
+  var isVid = ["wan","veo","ltx","minimax"].indexOf(model.id) >= 0;
+  var parts = [];
+  if (idea) parts.push("【アイデア】\n" + idea);
+  if (fs)   parts.push("【タグ】\n" + fs);
+
+  return "あなたはAI" + (isVid ? "動画" : "画像") + "生成のネガティブプロンプト専門家です。\n\n" +
+    "以下のポジティブ側の内容をもとに、" + model.name + "向けのネガティブプロンプトを作成してください。\n\n" +
+    parts.join("\n\n") + "\n\n" +
+    "【ルール】\n" +
+    "・必ず英語のカンマ区切りキーワードのみで出力する（文章にしない）\n" +
+    "・低品質・崩れた解剖学的構造・手や指の破綻・ぼやけ・余計なテキストや透かしなど、一般的に避けたい要素を厳選する（最小限に。8〜15個程度が目安）\n" +
+    "・ポジティブ側で意図的に指定されている特徴（傷跡、獣耳、特定の表情など）を打ち消すようなキーワードは含めない\n" +
+    "・説明文や前置きは一切書かず、キーワードのみをカンマ区切りで1行で出力する";
 }
 
 function mkTranslatePrompt(model, jaPrompt) {
@@ -210,197 +379,46 @@ function mkTranslatePrompt(model, jaPrompt) {
 // ═══════════════════════════════════════════
 // 画像モデル設定
 // ═══════════════════════════════════════════
+// cats はタグの読み込み完了後に app.js から差し込まれる（全モデル共通・動的）。
 const IMG_MODELS = {
   anima: {
-    id:"anima", name:"Anima", icon:"✨", color:"#E879A0",
+    id:"anima", name:"Anima", icon:"✨", color:"#C23B72", // 白背景でのコントラストを確保するため元の#E879A0より濃くしたピンク
     label:"Danbooru+自然言語", note:"Qwen LLM",
     tip:"タグは小文字・スペース区切り（score_Nのみアンダーバー）/ @アーティスト名",
     multiPerson: true,
-    catTpl: {
-      character: [
-        {id:"bright",  label:"明るい少女",   pre:{_p:true,gender:"少女",expression:["笑顔"],hair:["ロングヘア","黒髪"],eyes:["青い瞳"]}},
-        {id:"cool",    label:"クールな少年",  pre:{_p:true,gender:"少年",expression:["クール"],hair:["黒髪","ショートヘア"]}},
-        {id:"mystic",  label:"神秘的な女性",  pre:{_p:true,gender:"少女",expression:["悲しそう"],hair:["白髪","ロングヘア"],eyes:["紫の瞳"]}},
-        {id:"cheer",   label:"元気な子",      pre:{_p:true,gender:"少女",expression:["喜び"],hair:["茶髪","ツインテール"]}},
-        {id:"mature",  label:"大人の女性",    pre:{_p:true,gender:"少女",expression:["クール"],hair:["黒髪","ロングヘア"],eyes:["赤い瞳"]}},
-      ],
-      outfit: [
-        {id:"school",  label:"制服",          pre:{_p:true,outfit:["セーラー服"]}},
-        {id:"casual",  label:"カジュアル",    pre:{_p:true,outfit:["カジュアル"]}},
-        {id:"kimono",  label:"和装",          pre:{_p:true,outfit:["着物"]}},
-        {id:"gothic",  label:"ゴスロリ",      pre:{_p:true,outfit:["ゴスロリ"]}},
-        {id:"fantasy", label:"ファンタジー",  pre:{_p:true,outfit:["ファンタジーアーマー"]}},
-        {id:"swim",    label:"水着",          pre:{_p:true,outfit:["水着"]}},
-      ],
-      scene: [
-        {id:"spring",label:"春の公園",   pre:{scene:["公園","屋外"],background:["桜"],lighting:["ソフトライト","日光"],atmosphere:["穏やか"],pose:["立ち姿","正面を向いて"]}},
-        {id:"night", label:"夜の都市",   pre:{scene:["都市","屋外"],background:["夜景"],lighting:["ネオンライト"],atmosphere:["神秘的"]}},
-        {id:"forest",label:"幻想の森",   pre:{scene:["森","屋外"],lighting:["ソフトライト","木漏れ日"],atmosphere:["幻想的","神秘的"]}},
-        {id:"beach", label:"夕暮れの海", pre:{scene:["海辺","屋外"],background:["夕焼け"],lighting:["逆光","リムライト"],atmosphere:["もの悲しい"]}},
-        {id:"cafe",  label:"カフェ",     pre:{scene:["カフェ","屋内"],lighting:["ソフトライト","日光"],atmosphere:["穏やか"],pose:["座っている"]}},
-        {id:"starry",label:"星空の夜",   pre:{scene:["屋外"],background:["星空"],lighting:["月光"],atmosphere:["幻想的","ロマンティック"]}},
-      ],
-      style: [
-        {id:"soft_anime",label:"ソフトアニメ",      pre:{artStyle:["アニメ"],colorPalette:["パステル"]}},
-        {id:"real",      label:"写実的",            pre:{artStyle:["フォトリアル"],colorPalette:["暖色系"]}},
-        {id:"water",     label:"水彩画風",           pre:{artStyle:["水彩"],colorPalette:["パステル"]}},
-        {id:"dark",      label:"ダークファンタジー", pre:{artStyle:["デジタルアート"],colorPalette:["寒色系"]}},
-        {id:"cyber",     label:"サイバーパンク",     pre:{artStyle:["デジタルアート"],colorPalette:["ネオン"]}},
-        {id:"retro",     label:"レトロアニメ",       pre:{artStyle:["アニメ"],colorPalette:["アースカラー"]}},
-      ],
-      quality: [
-        {id:"min",  label:"最小構成", pre:{quality:["マスタピース","最高品質","スコア7","高解像度"],rating:["安全"]}},
-        {id:"std",  label:"標準品質", pre:{quality:["マスタピース","最高品質","スコア9","スコア8","スコア7","年2025","最新","高解像度"],rating:["安全"]}},
-        {id:"best", label:"最高品質", pre:{quality:["マスタピース","最高品質","スコア9","スコア8","スコア7","年2025","最新","とても美的","高解像度","absurdres","公式アート","風景"],rating:["安全"]}},
-      ],
-    },
-    cats: [
-      {id:"character",label:"キャラクター",icon:"👤",fields:[]},
-      {id:"outfit",   label:"服装",        icon:"👗",fields:[]},
-      {id:"scene",label:"シーン",icon:"🏙️",fields:[
-        {key:"scene",      label:"シーン・場所", chips:["屋内","屋外","学校","教室","カフェ","公園","海辺","森","都市","和室","図書館","宇宙","廃墟","電車の中","神社","花畑","屋上","橋の上","水辺","夜の路地","城","温泉","雨の街","空港","遊園地","水族館"]},
-        {key:"background", label:"背景",         chips:["シンプルな背景","桜","夜景","夕焼け","星空","草原","紅葉","雪景色","窓","雨","花火","蛍","朝霧","虹","満月","紫陽花","コスモス","積雪","夜桜","夕立","水面の反射","ひまわり畑"]},
-        {key:"lighting",   label:"ライティング", chips:["ソフトライト","ドラマチックライト","逆光","リムライト","日光","月光","ネオンライト","蛍の光","木漏れ日","ゴールデンアワー","ブルーアワー","室内灯","キャンドルライト","夕焼けの光","スポットライト","朝の光","薄明かり"]},
-        {key:"atmosphere", label:"雰囲気",       chips:["穏やか","神秘的","幻想的","ドラマチック","もの悲しい","エネルギッシュ","ロマンティック","温かい","緊張感","懐かしい","夢見がち","寂しい","楽しそう","静寂","爽やか","切ない","孤独","希望","青春"]},
-        {key:"pose",       label:"ポーズ・視線", chips:["立ち姿","座っている","正面を向いて","横向き","振り返り","俯き","寝ている","手を広げて","指差し","両手を上げている","ウインク","頬に手を当てて","本を読んでいる","走っている","飛んでいる","音楽を聴いている","手を振っている","膝を抱えている","寄りかかっている"]},
-      ]},
-      {id:"style",label:"スタイル",icon:"🎨",fields:[
-        {key:"artStyle",     label:"アートスタイル", chips:["アニメ","フォトリアル","水彩","油絵","デジタルアート","スケッチ","3Dレンダー","浮世絵風","ペン画","厚塗り","ゲームCG","コミック","ラノベイラスト"]},
-        {key:"colorPalette", label:"カラーパレット", chips:["暖色系","寒色系","モノクロ","パステル","ネオン","アースカラー","鮮やか","くすんだ色","セピア","モノトーン","ビビッド","マカロンカラー"]},
-      ]},
-      {id:"quality",label:"クオリティ",icon:"⭐",fields:[
-        {key:"quality", label:"クオリティタグ（英語で出力）",chips:["マスタピース","最高品質","ハイクオリティ","スコア9","スコア8","スコア7","年2025","最新","とても美的","高解像度","absurdres","公式アート","風景"]},
-        {key:"rating",  label:"レーティング", chips:["安全","軽い色気"],single:true},
-        {key:"negative",label:"ネガティブ（最小限に）",chips:[],ph:"worst quality, low quality, early, old, score_1, score_2, score_3, bad anatomy, bad hands\n※入れすぎ注意"},
-      ]},
-    ],
+    cats: [],
     build: animaBuild,
   },
-
   krea2: {
-    id:"krea2", name:"Krea 2", icon:"🪄", color:"#9D7FEA", label:"自然言語・スタイル重視",
+    id:"krea2", name:"Krea 2", icon:"🪄", color:"#6D28D9", label:"自然言語・スタイル重視", // 元の#9D7FEAを白背景用に濃く調整
     tip:"被写体→スタイル→ライティング→ムード→品質の順で指定",
-    catTpl: {
-      character: [{id:"w",label:"女性",pre:{character:["女性"]}},{id:"m",label:"男性",pre:{character:["男性"]}},{id:"n",label:"風景のみ",pre:{character:["人物なし"]}}],
-      outfit:    [{id:"e",label:"エレガント",pre:{clothingStyle:["エレガントなドレス"]}},{id:"c",label:"カジュアル",pre:{clothingStyle:["カジュアルな服装"]}}],
-      scene:     [{id:"g",label:"ゴールデンアワー",pre:{scene:["屋外"],lighting:["ゴールデンアワー"],mood:["穏やか"]}},{id:"n",label:"夜の都市",pre:{scene:["都市夜景"],lighting:["ネオン照明"],mood:["神秘的"]}}],
-      style:     [{id:"p",label:"フォトリアル",pre:{style:["フォトリアル"],colorPalette:["自然な色彩"]}},{id:"d",label:"デジタルアート",pre:{style:["デジタルアート"],colorPalette:["鮮やか"]}}],
-      quality:   [{id:"s",label:"標準",pre:{quality:["highly detailed","sharp focus"]}},{id:"a",label:"受賞クオリティ",pre:{quality:["highly detailed","award-winning","8K UHD"]}}],
-    },
-    cats: [
-      {id:"character",label:"キャラクター",icon:"👤",fields:[
-        {key:"character",    label:"被写体の種類", chips:["女性","男性","子供","動物","建物","風景","人物なし"]},
-        {key:"subjectDetail",label:"被写体の詳細", chips:["長い黒髪","青い目","自信に満ちた表情","優しい微笑み","鍛えた体格","華奢な体型"]},
-      ]},
-      {id:"outfit",label:"服装",icon:"👗",fields:[
-        {key:"clothingStyle",label:"服装スタイル",chips:["エレガントなドレス","カジュアルな服装","フォーマルスーツ","ボヘミアンスタイル","スポーツウェア","ファンタジー衣装","和服"]},
-      ]},
-      {id:"scene",label:"シーン",icon:"🏙️",fields:[
-        {key:"scene",   label:"シーン",     chips:["室内","屋外","都市夜景","自然","海","スタジオ","カフェ","廃墟","宇宙"]},
-        {key:"lighting",label:"ライティング",chips:["ゴールデンアワー","ブルーアワー","スタジオ照明","自然光","キアロスクーロ","柔らかい拡散光","ネオン照明","逆光"]},
-        {key:"mood",    label:"ムード",     chips:["穏やか","神秘的","幻想的","ドラマチック","もの悲しい","エネルギッシュ","映画的"]},
-        {key:"camera",  label:"カメラ",     chips:["顔のクローズアップ","広角","バストショット","俯瞰","ローアングル","マクロ"]},
-        {key:"pose",    label:"ポーズ",     chips:["立ち姿","座っている","歩いている","正面向き","横向き","振り返り"]},
-      ]},
-      {id:"style",label:"スタイル",icon:"🎨",fields:[
-        {key:"style",       label:"スタイル",       chips:["フォトリアル","超リアル","デジタルアート","油絵","水彩","3Dレンダー","コンセプトアート","ファッション写真"]},
-        {key:"colorPalette",label:"カラーパレット", chips:["アースカラー","宝石のような色","パステル","モノクロ","ネオン","暖色系","寒色系"]},
-      ]},
-      {id:"quality",label:"クオリティ",icon:"⭐",fields:[
-        {key:"quality",label:"クオリティタグ",chips:["超高精細","精巧なディテール","受賞作品","8K UHD","sharp focus","award-winning","highly detailed"]},
-      ]},
-    ],
-    build: function(form){ return genericBuild(this,form); },
+    multiPerson: true,
+    cats: [],
+    build: commonImageBuild,
   },
-
   gptImage2: {
-    id:"gptImage2", name:"GPT Image 2", icon:"🖌️", color:"#2EBF8A", label:"自然言語・説明的",
+    id:"gptImage2", name:"GPT Image 2", icon:"🖌️", color:"#047857", label:"自然言語・説明的", // 元の#2EBF8Aを白背景用に濃く調整
     tip:"文章形式で詳しく描写。スタイルを最後に「Rendered in X style.」で指定",
-    catTpl: {
-      character: [{id:"w",label:"女性",pre:{subject:["美しい若い女性"]}},{id:"n",label:"自然風景",pre:{subject:["壮大な自然風景"]}}],
-      outfit:    [{id:"e",label:"エレガント",pre:{clothing:["エレガントなドレスを着ている"]}},{id:"t",label:"伝統衣装",pre:{clothing:["美しい伝統的な衣装をまとっている"]}}],
-      scene:     [{id:"g",label:"日本庭園",pre:{setting:["日本庭園"],lighting:["柔らかな朝の光"],mood:["穏やか"]}},{id:"n",label:"夜の都市",pre:{setting:["夜の都市"],lighting:["ネオンライト"],mood:["神秘的"]}}],
-      style:     [{id:"p",label:"写真",pre:{style:["フォトリアル写真"]}},{id:"a",label:"アニメ",pre:{style:["アニメイラスト"]}}],
-      quality:   [{id:"h",label:"高品質",pre:{quality:["高品質","超高精細","プロ品質"]}},{id:"m",label:"映画的",pre:{quality:["映画的","シネマティック","プロ品質"]}}],
-    },
-    cats: [
-      {id:"character",label:"キャラクター",icon:"👤",fields:[{key:"subject",label:"メイン被写体",chips:["美しい若い女性","凛々しい男性","可愛い子供","壮大な自然風景","歴史的な建物","抽象的なイメージ"]}]},
-      {id:"outfit",label:"服装",icon:"👗",fields:[{key:"clothing",label:"服装・衣装",chips:["エレガントなドレスを着ている","美しい伝統的な衣装","スタイリッシュなモダンファッション","輝く鎧と武器を持った","白いサマードレス"]}]},
-      {id:"scene",label:"シーン",icon:"🏙️",fields:[
-        {key:"setting", label:"シーン",     chips:["日本庭園","夜の都市","神秘的な森","海辺","砂漠","宇宙","室内","カフェ","廃墟"]},
-        {key:"lighting",label:"ライティング",chips:["柔らかな朝の光","ゴールデンアワー","月光","スタジオ照明","ネオンライト","焚き火","曇り空","星明かり"]},
-        {key:"mood",    label:"ムード",     chips:["穏やか","神秘的","ドラマチック","もの悲しい","幻想的","緊張感","ロマンティック"]},
-        {key:"pose",    label:"ポーズ",     chips:["立っている","座っている","歩いている","振り返っている","カメラを見ている"]},
-      ]},
-      {id:"style",label:"スタイル",icon:"🎨",fields:[
-        {key:"style",  label:"アートスタイル",chips:["フォトリアル写真","デジタルイラスト","油絵","水彩画","鉛筆スケッチ","3Dレンダー","アニメイラスト"]},
-        {key:"details",label:"追加詳細",    chips:["フィルムグレイン","ボケ味","筆のタッチ","レンズフレア"]},
-      ]},
-      {id:"quality",label:"クオリティ",icon:"⭐",fields:[{key:"quality",label:"品質タグ",chips:["高品質","超高精細","プロ品質","映画的","傑作","シネマティック"]}]},
-    ],
-    build: function(form){
-      var p=[];
-      var sub=fGet(form,"subject");if(sub.length)p.push(sub.join("、"));
-      var cl=fGet(form,"clothing");if(cl.length)p.push(cl.join("、")+"。");
-      var se=fGet(form,"setting");if(se.length)p.push("場所: "+se.join("、")+"。");
-      var li=fGet(form,"lighting");if(li.length)p.push(li.join("、")+"。");
-      var mo=fGet(form,"mood");if(mo.length)p.push("ムードは"+mo.join("、")+"。");
-      var po=fGet(form,"pose");if(po.length)p.push(po.join("、")+"。");
-      var de=fGet(form,"details");if(de.length)p.push(de.join("、")+"。");
-      var st=fGet(form,"style");if(st.length)p.push(st.join("、")+"スタイルでレンダリング。");
-      var q=fGet(form,"quality");if(q.length)p.push(q.join("、")+"。");
-      return p.filter(Boolean).join("\n");
-    },
+    multiPerson: true,
+    cats: [],
+    build: commonImageBuild,
   },
-
   nanoBanana2: {
-    id:"nanoBanana2", name:"Nano Banana 2", icon:"⚡", color:"#F0A317", label:"シンプル・高速",
+    id:"nanoBanana2", name:"Nano Banana 2", icon:"⚡", color:"#B45309", label:"シンプル・高速", // 元の#F0A317を白背景用に濃く調整
     tip:"3〜12個の強力なキーワードが最効果。epic, cinematic, volumetric light で品質UP",
-    catTpl: {
-      character: [{id:"w",label:"女性",pre:{subject:["女性"]}},{id:"d",label:"ドラゴン",pre:{subject:["ドラゴン"]}},{id:"l",label:"風景",pre:{subject:["壮大な風景"]}}],
-      outfit:    [{id:"a",label:"鎧",pre:{outfit:["重厚な鎧"]}},{id:"r",label:"魔法使いの衣",pre:{outfit:["魔法使いのローブ"]}}],
-      scene:     [{id:"f",label:"古代の森",pre:{scene:["古代の森"],mood:["神秘的"]}},{id:"c",label:"未来都市",pre:{scene:["未来都市"],mood:["SF"]}}],
-      style:     [{id:"a",label:"アニメ",pre:{artStyle:["アニメ"]}},{id:"r",label:"リアル",pre:{artStyle:["リアル"]}},{id:"f",label:"ファンタジー",pre:{artStyle:["ファンタジーアート"]}}],
-      quality:   [{id:"c",label:"映画的",pre:{extra:["映画的","シネマティック"]}},{id:"v",label:"ボリュームライト",pre:{extra:["ボリュームライト","HDR"]}}],
-    },
-    cats: [
-      {id:"character",label:"キャラクター",icon:"👤",fields:[
-        {key:"subject",label:"被写体", chips:["女性","男性","動物","ドラゴン","ロボット","魔法使い","戦士","壮大な風景"]},
-        {key:"mood",   label:"ムード", chips:["壮大","明るい","ダーク","夢幻的","神秘的","平和","鮮やか","不気味"]},
-      ]},
-      {id:"outfit",label:"服装",icon:"👗",fields:[{key:"outfit",label:"服装・装備",chips:["重厚な鎧","魔法使いのローブ","カジュアルな服","エルフの衣","サイバースーツ","ドレス","和服"]}]},
-      {id:"scene",label:"シーン",icon:"🏙️",fields:[
-        {key:"scene",       label:"シーン",chips:["古代の森","未来都市","海","空","砂漠","水中","宇宙","山","廃墟"]},
-        {key:"environment", label:"環境",  chips:["霧","嵐","夕暮れ","朝霧","満月","オーロラ","雪"]},
-        {key:"pose",        label:"ポーズ",chips:["立っている","攻撃中","走っている","飛んでいる","座っている"]},
-      ]},
-      {id:"style",label:"スタイル",icon:"🎨",fields:[
-        {key:"artStyle",  label:"アートスタイル",chips:["リアル","アニメ","カートゥーン","絵画風","ファンタジーアート","SF","ミニマル"]},
-        {key:"colorTheme",label:"カラーテーマ",  chips:["暖色系","寒色系","モノクロ","パステル","ネオン","アースカラー","鮮やか"]},
-      ]},
-      {id:"quality",label:"クオリティ",icon:"⭐",fields:[{key:"extra",label:"追加キーワード",chips:["映画的","ボリュームライト","ボケ味","HDR","シネマティック","高精細"]}]},
-    ],
-    build: function(form){
-      var groups=[[].concat(fGet(form,"subject")).concat(fGet(form,"mood")),fGet(form,"outfit"),["scene","environment","pose"].reduce(function(a,k){return a.concat(fGet(form,k));},[]),[].concat(fGet(form,"artStyle")).concat(fGet(form,"colorTheme")),fGet(form,"extra")].filter(function(g){return g.length>0;});
-      return groups.map(function(g){return g.join(", ");}).join("\n");
-    },
+    multiPerson: true,
+    cats: [],
+    build: commonImageBuild,
   },
 };
 
 // ═══════════════════════════════════════════
-// 動画モデル設定
+// 動画モデル設定（今回のタグDB移行の対象外。従来どおり固定タグ）
 // ═══════════════════════════════════════════
 const VID_MODELS = {
   wan: {
-    id:"wan", name:"WAN", icon:"🌊", color:"#22D3EE", label:"モーション重視",
+    id:"wan", name:"WAN", icon:"🌊", color:"#0E7490", label:"モーション重視", // 元の#22D3EEを白背景用に濃く調整
     tip:"品質タグ先頭 / 「動き」を具体的に / カメラ: ドリーイン などで指定",
-    catTpl: {
-      character: [{id:"w",label:"女性",pre:{subject:["若い女性"]}},{id:"n",label:"自然",pre:{subject:["壮大な自然"]}}],
-      outfit:    [{id:"d",label:"ドレス",pre:{clothing:["白いドレス"]}},{id:"c",label:"カジュアル",pre:{clothing:["カジュアルな服装"]}}],
-      scene:     [{id:"b",label:"竹林",pre:{scene:["竹林"],atmosphere:["平和"]}},{id:"n",label:"夜の都市",pre:{scene:["都市"],atmosphere:["神秘的"]}}],
-      style:     [{id:"c",label:"映画的",pre:{style:["映画的"]}},{id:"a",label:"アニメ",pre:{style:["アニメ"]}}],
-      quality:   [{id:"h",label:"高品質",pre:{quality:["高品質","映画品質","滑らかな動き","4K"]}}],
-    },
     cats: [
       {id:"character",label:"被写体",icon:"👤",fields:[{key:"subject",label:"被写体",chips:["若い女性","男性","子供","動物","群衆","壮大な自然","都市の光景"]}]},
       {id:"outfit",label:"服装",icon:"👗",fields:[{key:"clothing",label:"服装",chips:["白いドレス","カジュアルな服装","スーツ","和服","戦闘服"]}]},
@@ -425,15 +443,8 @@ const VID_MODELS = {
   },
 
   veo: {
-    id:"veo", name:"Google Veo", icon:"🎬", color:"#5B99F5", label:"シネマティック",
+    id:"veo", name:"Google Veo", icon:"🎬", color:"#2563EB", label:"シネマティック", // 元の#5B99F5を白背景用に濃く調整
     tip:"カメラムーブメントとアングルが最重要 / dolly in, drone flyover, golden hour",
-    catTpl: {
-      character: [{id:"p",label:"人物",pre:{subject:["人物"]}},{id:"l",label:"風景",pre:{subject:["壮大な風景"]}}],
-      outfit:    [{id:"c",label:"普段着",pre:{clothing:["普段着"]}},{id:"f",label:"正装",pre:{clothing:["正装"]}}],
-      scene:     [{id:"g",label:"ゴールデンアワー",pre:{lighting:["ゴールデンアワー"],cinematicStyle:["ハリウッド大作"]}},{id:"n",label:"ノワール",pre:{cinematicStyle:["フィルムノワール"],lighting:["ドラマチックスタジオ"]}}],
-      style:     [{id:"h",label:"ハリウッド",pre:{cinematicStyle:["ハリウッド大作"]}},{id:"d",label:"ドキュメンタリー",pre:{cinematicStyle:["ドキュメンタリー"]}}],
-      quality:   [{id:"c",label:"映画的",pre:{quality:["4K","映画的","フォトリアル","プロ品質"]}}],
-    },
     cats: [
       {id:"character",label:"被写体",icon:"👤",fields:[
         {key:"subject",label:"被写体",chips:["人物","壮大な風景","東京の風景","都市","自然","宇宙","水中"]},
@@ -457,15 +468,8 @@ const VID_MODELS = {
   },
 
   ltx: {
-    id:"ltx", name:"LTX-2.3", icon:"▶️", color:"#A78BFA", label:"高速・リアルタイム",
+    id:"ltx", name:"LTX-2.3", icon:"▶️", color:"#7C3AED", label:"高速・リアルタイム", // 元の#A78BFAを白背景用に濃く調整
     tip:"品質タグを必ず最初に配置（このモデルの最重要ルール）",
-    catTpl: {
-      character: [{id:"s",label:"サムライ",pre:{subject:["侍"]}},{id:"m",label:"メカ",pre:{subject:["巨大メカ"]}},{id:"w",label:"女性",pre:{subject:["女性"]}}],
-      outfit:    [{id:"a",label:"サイバーアーマー",pre:{clothing:["サイバーアーマー"]}},{id:"c",label:"普段着",pre:{clothing:["普段着"]}}],
-      scene:     [{id:"n",label:"ネオンの路地",pre:{setting:["ネオンの路地"],camera:["ミディアムショット"],aesthetic:["サイバーパンク"]}},{id:"t",label:"古代神殿",pre:{setting:["古代神殿の廃墟"],camera:["広角ショット"],aesthetic:["ファンタジー"]}}],
-      style:     [{id:"c",label:"サイバーパンク",pre:{aesthetic:["サイバーパンク"]}},{id:"f",label:"ファンタジー",pre:{aesthetic:["ファンタジー"]}},{id:"m",label:"映画的",pre:{aesthetic:["映画的"]}}],
-      quality:   [{id:"b",label:"最高品質",pre:{quality:["最高品質","高解像度","シャープ","4K"]}},{id:"g",label:"フィルムグレイン",pre:{quality:["最高品質","フィルムグレイン","4K"]}}],
-    },
     cats: [
       {id:"character",label:"被写体",icon:"👤",fields:[{key:"subject",label:"被写体",chips:["侍","巨大メカ","女性","モンスター","メカ","風景","都市","自然"]}]},
       {id:"outfit",label:"服装",icon:"👗",fields:[{key:"clothing",label:"服装・装備",chips:["サイバーアーマー","普段着","和服","SF戦闘服","ファンタジー衣装","魔法使いのローブ"]}]},
@@ -485,15 +489,8 @@ const VID_MODELS = {
   },
 
   minimax: {
-    id:"minimax", name:"MiniMax", icon:"🌟", color:"#F06BA8", label:"多様スタイル対応",
+    id:"minimax", name:"MiniMax", icon:"🌟", color:"#BE185D", label:"多様スタイル対応", // 元の#F06BA8を白背景用に濃く調整
     tip:"感情・トーンの指定が映像の雰囲気を決定する（最重要）",
-    catTpl: {
-      character: [{id:"w",label:"若い女性",pre:{subject:["若い女性"]}},{id:"r",label:"ロボット",pre:{subject:["未来的なロボット"]}},{id:"d",label:"ドラゴン",pre:{subject:["ドラゴン"]}}],
-      outfit:    [{id:"d",label:"ドレス",pre:{clothing:["エレガントなドレス"]}},{id:"c",label:"カジュアル",pre:{clothing:["カジュアルな服装"]}}],
-      scene:     [{id:"c",label:"桜の公園",pre:{scene:["桜の公園"],emotion:["ロマンティック"]}},{id:"cy",label:"サイバー都市",pre:{scene:["サイバーパンクの都市"],emotion:["神秘的"]}},{id:"m",label:"霧の山",pre:{scene:["霧の山々"],emotion:["壮大"]}}],
-      style:     [{id:"a",label:"アニメ",pre:{style:["アニメ"]}},{id:"r",label:"リアル",pre:{style:["リアル"]}},{id:"3",label:"3Dアニメ",pre:{style:["3Dアニメ"]}},{id:"c",label:"映画的",pre:{style:["映画的"]}}],
-      quality:   [{id:"s",label:"滑らかな動き",pre:{extra:["滑らかな動き","鮮やかな色彩","シネマティック"]}},{id:"d",label:"精緻",pre:{extra:["精緻なテクスチャ","4K","シネマティック"]}}],
-    },
     cats: [
       {id:"character",label:"被写体",icon:"👤",fields:[
         {key:"subject", label:"被写体",      chips:["若い女性","男性","動物","ロボット","ドラゴン","カップル","建物","自然"]},
@@ -515,5 +512,3 @@ const VID_MODELS = {
     },
   },
 };
-
-const ANIMA_SCENE_CATS = IMG_MODELS.anima.cats.filter(function(c){ return c.id!=="character"&&c.id!=="outfit"; });

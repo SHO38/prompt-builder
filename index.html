@@ -16,7 +16,7 @@
     .tpl-free-badge {
       display: inline-block; margin-left: 6px; padding: 1px 5px;
       font-size: 10px; line-height: 1.4; border-radius: 4px;
-      background: rgba(255,255,255,0.12); color: inherit; opacity: 0.75;
+      background: var(--surface2); border: 1px solid var(--border); color: inherit; opacity: 0.85;
     }
     .tpl-register-modal {
       max-width: 480px; width: 92vw; text-align: left;
@@ -31,18 +31,21 @@
       font-size: 12px; opacity: 0.7; margin-top: 12px; margin-bottom: 2px;
     }
     .tpl-field-label:first-child { margin-top: 0; }
+    .tpl-model-note {
+      font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.5;
+    }
     .tpl-input {
       width: 100%; box-sizing: border-box;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.14);
+      background: var(--surface2);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 10px;
       font-size: 14px;
-      color: inherit;
+      color: var(--text);
       font-family: inherit;
       resize: vertical;
     }
-    .tpl-input:focus { outline: none; border-color: rgba(255,255,255,0.35); }
+    .tpl-input:focus { outline: none; border-color: var(--accent); }
     .tpl-image-preview {
       margin-top: 8px; max-width: 100%; max-height: 160px;
       border-radius: 8px; object-fit: cover; display: block;
@@ -51,13 +54,25 @@
       margin-top: 18px; width: 100%;
       display: flex; align-items: center; justify-content: center; gap: 6px;
       padding: 10px; border-radius: 8px; border: none;
-      background: #E879A0; color: #fff; font-weight: 600; font-size: 14px;
+      background: #C23B72; color: #fff; font-weight: 600; font-size: 14px;
       cursor: pointer;
     }
     .btn-tpl-save:disabled { opacity: 0.6; cursor: default; }
     .btn-tpl-save:hover:not(:disabled) { filter: brightness(1.08); }
     .tpl-save-status {
       margin-top: 8px; font-size: 12px; text-align: center; min-height: 16px;
+    }
+    /* 編集モードのときだけ表示される削除ボタン（保存ボタンの下、控えめな見た目） */
+    .btn-tpl-delete {
+      margin-top: 8px; width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-muted); font-weight: 500; font-size: 13px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .btn-tpl-delete:hover { color: #DC2626; border-color: #DC2626; background: #FEF2F2; }
+    .tpl-image-current-note {
+      font-size: 11px; color: var(--text-muted); margin-top: 4px;
     }
   </style>
 </head>
@@ -128,103 +143,148 @@
     </div>
   </div>
 
-  <!-- アイデア入力 -->
-  <div class="idea-section">
-    <div class="idea-label">
-      <i class="ti ti-edit"></i>
-      アイデア・イメージを自由に入力
-      <span class="idea-sub">— 日本語でイメージを書いてください</span>
-    </div>
-    <textarea id="idea-input" placeholder="例）夕暮れの海辺に佇む黒髪の女性。もの悲しくも美しい雰囲気で、逆光の中でシルエットが浮かび上がる…" rows="3"></textarea>
-    <div class="idea-footer">
-      <span id="char-count" class="char-count"></span>
-      <button class="btn-generate" id="btn-generate">
-        <i class="ti ti-sparkles"></i> AIでプロンプト生成
-      </button>
-    </div>
-  </div>
-
-  <!-- カテゴリタブ（動的生成） -->
-  <div class="cat-tabs" id="cat-tabs"></div>
-
-  <!-- テンプレートバー -->
-  <div class="template-bar hidden" id="template-bar">
-    <div class="template-bar-label">
-      <i class="ti ti-layout-grid"></i>
-      <span id="template-bar-title">クイックテンプレート</span>
-      <span class="template-note" id="template-note"></span>
-    </div>
-    <div class="template-list" id="template-list"></div>
-  </div>
-
-  <!-- カテゴリコンテンツ -->
-  <div class="cat-content" id="cat-content"></div>
-
-  <!-- LoRAパネル -->
-  <div class="lora-panel hidden" id="lora-panel"></div>
-
-  <!-- バリエーションタブ -->
-  <div class="variation-tabs hidden" id="variation-tabs"></div>
-
-  <!-- ポジティブプロンプト出力 -->
-  <div class="output-section">
-    <div class="output-panel" id="output-pos">
-      <div class="output-header">
-        <div class="output-header-left">
-          <span class="output-dot" id="output-dot"></span>
-          <span class="output-label">ポジティブプロンプト</span>
-          <span class="lang-badge" id="lang-badge">JA 🇯🇵</span>
-          <span class="ai-badge hidden" id="ai-badge">AI生成</span>
-          <span class="char-len" id="prompt-len"></span>
+  <!-- メインレイアウト: 左＝アイデア入力・タグ調整（スクロール）／右＝生成ボタンと結果（画面に追従） -->
+  <main class="layout">
+    <div class="col-left">
+      <!-- アイデア入力 -->
+      <div class="idea-section">
+        <div class="idea-label">
+          <i class="ti ti-edit"></i>
+          アイデア・イメージを自由に入力
+          <span class="idea-sub">— 日本語でイメージを書いてください</span>
         </div>
-        <div class="output-header-right">
-          <button class="btn-sm" id="btn-variation">
-            <i class="ti ti-copy-check"></i> バリエーション
-          </button>
-          <button class="btn-sm btn-translate" id="btn-translate">
-            <i class="ti ti-language"></i> 英語に変換
-          </button>
-          <button class="btn-sm btn-back-ja hidden" id="btn-back-ja">
-            <i class="ti ti-arrow-left"></i> JA
-          </button>
-          <button class="btn-sm btn-edit hidden" id="btn-edit">
-            <i class="ti ti-pencil"></i> 編集
-          </button>
-          <button class="btn-copy" id="btn-copy">
-            <i class="ti ti-copy"></i> コピー
-          </button>
+        <textarea id="idea-input" placeholder="例）夕暮れの海辺に佇む黒髪の女性。もの悲しくも美しい雰囲気で、逆光の中でシルエットが浮かび上がる…" rows="3"></textarea>
+        <div class="idea-footer">
+          <span id="char-count" class="char-count"></span>
+        </div>
+        <div class="idea-hint">
+          <i class="ti ti-info-circle"></i>
+          タグ調整で選んだ内容も一緒にAIへ渡され、この文章と組み合わせてプロンプトが作られます。タグや入力を変更すると生成結果はリセットされる点にご注意ください。
         </div>
       </div>
-      <textarea class="output-edit hidden" id="output-edit" rows="6"></textarea>
-      <div class="output-body" id="output-body">
-        ← アイデアを入力するか、カテゴリのタグを選択するとプロンプトが生成されます
+
+      <!-- LoRAパネル（デフォルトは折りたたみ） -->
+      <div class="lora-panel hidden" id="lora-panel"></div>
+
+      <!-- タグ調整セクションの区切り -->
+      <div class="builder-divider">
+        <i class="ti ti-adjustments"></i>
+        <span>ここから下でタグを選ぶと、上のアイデアと組み合わせて反映されます（任意）</span>
       </div>
-      <div class="en-ready hidden" id="en-ready">
-        <i class="ti ti-check-circle"></i> 英語版が準備済みです
+
+      <!-- カテゴリタブ（動的生成） -->
+      <div class="cat-tabs" id="cat-tabs"></div>
+
+      <!-- テンプレートバー -->
+      <div class="template-bar hidden" id="template-bar">
+        <div class="template-bar-label">
+          <i class="ti ti-layout-grid"></i>
+          <span id="template-bar-title">クイックテンプレート</span>
+          <span class="template-note" id="template-note"></span>
+        </div>
+        <div class="template-list" id="template-list"></div>
       </div>
+
+      <!-- カテゴリコンテンツ -->
+      <div class="cat-content" id="cat-content"></div>
     </div>
 
-    <!-- ネガティブプロンプト出力 -->
-    <div class="output-panel neg-panel hidden" id="output-neg">
-      <div class="output-header">
-        <div class="output-header-left">
-          <span class="output-dot neg-dot"></span>
-          <span class="output-label">ネガティブプロンプト</span>
-          <span class="char-len" id="neg-len"></span>
-        </div>
-        <button class="btn-copy" id="btn-copy-neg">
-          <i class="ti ti-copy"></i> コピー
+    <div class="col-right">
+      <!-- AIでプロンプト生成ボタン -->
+      <div class="generate-bar">
+        <button class="btn-generate" id="btn-generate">
+          <i class="ti ti-sparkles"></i> AIでプロンプト生成
         </button>
+        <span class="generate-bar-hint"><i class="ti ti-arrow-left"></i> アイデア入力・タグをもとに生成します</span>
       </div>
-      <div class="output-body neg-body" id="neg-body"></div>
-    </div>
-  </div>
 
-  <!-- 履歴 -->
-  <div class="history-section hidden" id="history-section">
-    <div class="history-label"><i class="ti ti-history"></i> 履歴</div>
-    <div id="history-list"></div>
-  </div>
+      <!-- バリエーションタブ -->
+      <div class="variation-tabs hidden" id="variation-tabs"></div>
+
+      <!-- ポジティブ／ネガティブプロンプト出力 -->
+      <div class="output-section">
+        <div class="output-panel" id="output-pos">
+          <div class="output-header">
+            <div class="output-header-left">
+              <span class="output-dot" id="output-dot"></span>
+              <span class="output-label">ポジティブプロンプト</span>
+              <span class="lang-badge" id="lang-badge">JA 🇯🇵</span>
+              <span class="ai-badge hidden" id="ai-badge">AI生成</span>
+              <span class="char-len" id="prompt-len"></span>
+            </div>
+            <div class="output-header-right">
+              <button class="btn-sm" id="btn-variation">
+                <i class="ti ti-copy-check"></i> バリエーション
+              </button>
+              <button class="btn-sm btn-translate" id="btn-translate">
+                <i class="ti ti-language"></i> 英語に変換
+              </button>
+              <button class="btn-sm btn-back-ja hidden" id="btn-back-ja">
+                <i class="ti ti-arrow-left"></i> JA
+              </button>
+              <button class="btn-sm btn-edit hidden" id="btn-edit">
+                <i class="ti ti-pencil"></i> 編集
+              </button>
+              <button class="btn-copy" id="btn-copy">
+                <i class="ti ti-copy"></i> コピー
+              </button>
+            </div>
+          </div>
+
+          <!-- 入力内容の要約: アイデア文章／選んだタグ／LoRAを一目で確認できるようにする -->
+          <div class="output-inputs hidden" id="output-inputs">
+            <div class="oi-row hidden" id="oi-row-idea">
+              <i class="ti ti-edit"></i>
+              <span class="oi-label">アイデア</span>
+              <span class="oi-val" id="oi-idea-val"></span>
+            </div>
+            <div class="oi-row hidden" id="oi-row-tags">
+              <i class="ti ti-tags"></i>
+              <span class="oi-label">タグ</span>
+              <span class="oi-val" id="oi-tags-val"></span>
+            </div>
+            <div class="oi-row hidden" id="oi-row-lora">
+              <i class="ti ti-adjustments"></i>
+              <span class="oi-label">LoRA</span>
+              <span class="oi-val" id="oi-lora-val"></span>
+            </div>
+          </div>
+
+          <textarea class="output-edit hidden" id="output-edit" rows="6"></textarea>
+          <div class="output-body" id="output-body">
+            ← アイデアを入力するか、タグを選択するとプロンプトが生成されます
+          </div>
+          <div class="en-ready hidden" id="en-ready">
+            <i class="ti ti-check-circle"></i> 英語版が準備済みです
+          </div>
+        </div>
+
+        <!-- ネガティブプロンプト出力 -->
+        <div class="output-panel neg-panel hidden" id="output-neg">
+          <div class="output-header">
+            <div class="output-header-left">
+              <span class="output-dot neg-dot"></span>
+              <span class="output-label">ネガティブプロンプト</span>
+              <span class="char-len" id="neg-len"></span>
+            </div>
+            <button class="btn-copy" id="btn-copy-neg">
+              <i class="ti ti-copy"></i> コピー
+            </button>
+          </div>
+          <div class="output-body neg-body" id="neg-body"></div>
+        </div>
+      </div>
+
+      <!-- 履歴 -->
+      <div class="history-section hidden" id="history-section">
+        <div class="history-label"><i class="ti ti-history"></i> 履歴</div>
+        <div id="history-list"></div>
+        <div class="history-more-wrap hidden" id="history-more-wrap">
+          <button class="btn-history-more" id="btn-history-more">もっと見る</button>
+        </div>
+      </div>
+    </div>
+  </main>
 
   <!-- フッター -->
   <div class="footer">
@@ -235,22 +295,17 @@
   <div class="modal-overlay hidden" id="tpl-modal-overlay">
     <div class="modal tpl-register-modal">
       <button class="modal-close" id="tpl-modal-close"><i class="ti ti-x"></i></button>
-      <div class="tpl-modal-title"><i class="ti ti-layout-grid"></i> テンプレート登録</div>
+      <div class="tpl-modal-title"><i class="ti ti-layout-grid"></i> <span id="tpl-modal-title-text">テンプレート登録</span></div>
       <div class="tpl-form">
         <label class="tpl-field-label" for="tpl-name">名前</label>
         <input type="text" id="tpl-name" class="tpl-input" placeholder="例）夕暮れの海辺の少女" />
 
         <label class="tpl-field-label" for="tpl-category">カテゴリ</label>
-        <select id="tpl-category" class="tpl-input">
-          <option value="character">キャラクター</option>
-          <option value="outfit">服装</option>
-          <option value="scene">シーン</option>
-          <option value="style">スタイル</option>
-          <option value="quality">クオリティ</option>
-        </select>
+        <select id="tpl-category" class="tpl-input"></select>
 
         <label class="tpl-field-label" for="tpl-model">モデル</label>
         <select id="tpl-model" class="tpl-input"></select>
+        <div class="tpl-model-note">※ここで選んだモデルに保存されますが、同じモード（画像/動画）内の他のモデルからも使えます</div>
 
         <label class="tpl-field-label" for="tpl-prompt-text">プロンプト文章（自由記述）</label>
         <textarea id="tpl-prompt-text" class="tpl-input" rows="4" placeholder="タグに縛られず、自由に文章で書いてください"></textarea>
@@ -258,8 +313,10 @@
         <label class="tpl-field-label" for="tpl-image-file">画像（任意）</label>
         <input type="file" id="tpl-image-file" class="tpl-input" accept="image/*" />
         <img id="tpl-image-preview" class="tpl-image-preview hidden" alt="プレビュー" />
+        <div class="tpl-image-current-note hidden" id="tpl-image-current-note">現在の画像です。変更する場合のみ新しい画像を選択してください</div>
 
-        <button class="btn-tpl-save" id="btn-tpl-save"><i class="ti ti-device-floppy"></i> 保存</button>
+        <button class="btn-tpl-save" id="btn-tpl-save"><i class="ti ti-device-floppy"></i> <span id="tpl-save-btn-text">保存</span></button>
+        <button class="btn-tpl-delete hidden" id="btn-tpl-delete"><i class="ti ti-trash"></i> このテンプレートを削除</button>
         <div class="tpl-save-status" id="tpl-save-status"></div>
       </div>
     </div>
@@ -273,6 +330,9 @@
       <div class="modal-label" id="modal-label"></div>
     </div>
   </div>
+
+  <!-- トースト通知（エラー等の非ブロッキング通知） -->
+  <div class="toast-container" id="toast-container"></div>
 
   <script src="data.js"></script>
   <script src="app.js"></script>
