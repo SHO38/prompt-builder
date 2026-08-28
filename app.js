@@ -245,6 +245,41 @@ function getFS() {
   return parts.join('\n');
 }
 
+// 現在選択中の全チップ値をフラットな配列で集める（生成結果の「タグ抜け」チェック用）
+function collectAllTagValues() {
+  const vals = [];
+  const model = getModel();
+  if (model.multiPerson) {
+    state.people.forEach(function(p) {
+      model.cats.filter(function(c){ return c.isPerson; }).forEach(function(cat) {
+        cat.personFields.forEach(function(f) {
+          const v = p[f.key];
+          if (Array.isArray(v)) vals.push.apply(vals, v);
+          else if (v) vals.push(v);
+        });
+      });
+    });
+  }
+  model.cats.filter(function(c){ return !c.isPerson; }).forEach(function(cat) {
+    cat.fields.forEach(function(f) {
+      const v = state.form[f.key];
+      if (v && v.chips) vals.push.apply(vals, v.chips);
+    });
+  });
+  return vals;
+}
+
+// 指定したタグの主要な語幹が生成結果に含まれているか、緩やかにチェックする。
+// 「紫の瞳」のようなチップ値は語尾（の瞳/髪/服など）を除いた核（「紫」）だけ一致すれば
+// OKとする簡易判定（AIが表現を言い換えても拾えるように）。
+function tagsAllIncluded(text, tagValues) {
+  return tagValues.every(function(v) {
+    if (text.indexOf(v) >= 0) return true;
+    const core = v.replace(/(の瞳|の目|髪型|ヘア|スタイル|服|着|衣装|ドレス|ローブ|アーマー|スーツ)$/, '');
+    return !!core && core.length >= 2 && text.indexOf(core) >= 0;
+  });
+}
+
 async function generate() {
   if (!hasInput() || state.loading) return;
   state.loading = true;
@@ -259,16 +294,23 @@ async function generate() {
     const fs    = getFS();
     const posPrompt = mkGenPrompt(model, idea, fs, state.people);
     const negPrompt = mkNegPrompt(model, idea, fs);
+    const tagValues = collectAllTagValues();
 
-    // ポジティブ・ネガティブを同時に生成する。ネガティブ側の失敗はポジティブの結果まで
-    // 無駄にしないよう、個別にcatchして空文字のまま続行する（トーストで知らせるのみ）。
-    const [posResult, negResult] = await Promise.all([
-      apiCall('/api/generate', 'POST', { prompt: posPrompt, model: state.aiModel }),
-      apiCall('/api/generate', 'POST', { prompt: negPrompt, model: state.aiModel })
-        .catch(function(e){ showToast('ネガティブプロンプトの生成に失敗しました: ' + e.message, 'error'); return { text: '' }; }),
-    ]);
+    // ネガティブは並行して生成しておく（失敗してもポジティブの結果を無駄にしないよう個別にcatch）
+    const negPromise = apiCall('/api/generate', 'POST', { prompt: negPrompt, model: state.aiModel })
+      .catch(function(e){ showToast('ネガティブプロンプトの生成に失敗しました: ' + e.message, 'error'); return { text: '' }; });
 
-    state.aiPrompt  = posResult.text || '';
+    // ポジティブは、指定したタグが本文から抜け落ちていないかを確認し、
+    // 抜けていた場合のみ最大1回まで生成し直す（AIの出力ゆらぎ対策）
+    let posText = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const posResult = await apiCall('/api/generate', 'POST', { prompt: posPrompt, model: state.aiModel });
+      posText = posResult.text || '';
+      if (!tagValues.length || tagsAllIncluded(posText, tagValues)) break;
+    }
+
+    const negResult = await negPromise;
+    state.aiPrompt  = posText;
     state.negPrompt = (negResult.text || '').split('\n').filter(function(l){ return l.trim(); }).join(', ').trim();
 
     const savedId = await saveHistory(state.aiPrompt, getNeg(), 'JA');
