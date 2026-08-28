@@ -41,6 +41,7 @@ const state = {
   selectedLoras: [],        // 選択中のLoRA IDリスト
   imageCats:   [],          // Notion Tags DBから読み込んだ画像モード用カテゴリ（動的）
   tagsReady:   false,
+  presets:     [],          // フルプリセット一覧（アイデア＋タグ＋LoRAをまとめて保存したもの）
 };
 
 function getModels()  { return state.mode === 'image' ? IMG_MODELS : VID_MODELS; }
@@ -192,12 +193,25 @@ async function loadLoras() {
   }
 }
 
+// フルプリセット（アイデア＋タグ選択＋LoRAを丸ごと保存したもの）はモード（画像/動画）ごとに
+// 保存形式（people/form）が異なるので、モードで絞り込んで取得する。
+async function loadPresets() {
+  try {
+    const data = await apiCall('/api/presets?mode=' + encodeURIComponent(state.mode === 'image' ? '画像' : '動画'));
+    state.presets = data.presets || [];
+    renderPresetBar();
+  } catch(e) {
+    console.warn('プリセット読み込み失敗:', e.message);
+  }
+}
+
 async function saveHistory(prompt, negative, lang) {
   try {
-    await apiCall('/api/history', 'POST', {
+    const data = await apiCall('/api/history', 'POST', {
       prompt: prompt, negative: negative, model: state.modelId, lang: lang
     });
-  } catch(e) { console.warn('履歴保存失敗:', e.message); }
+    return (data && data.id) || null;
+  } catch(e) { console.warn('履歴保存失敗:', e.message); return null; }
 }
 
 // ── 生成・変換 ───────────────────────────────────────────────────
@@ -257,9 +271,9 @@ async function generate() {
     state.aiPrompt  = posResult.text || '';
     state.negPrompt = (negResult.text || '').split('\n').filter(function(l){ return l.trim(); }).join(', ').trim();
 
-    await saveHistory(state.aiPrompt, getNeg(), 'JA');
-    state.history.unshift({ prompt: state.aiPrompt, negative: getNeg(), model: state.modelId, lang: 'JA', date: new Date().toISOString() });
-    state.history = state.history.slice(0, 10);
+    const savedId = await saveHistory(state.aiPrompt, getNeg(), 'JA');
+    state.history.unshift({ id: savedId, prompt: state.aiPrompt, negative: getNeg(), model: state.modelId, lang: 'JA', date: new Date().toISOString(), favorite: false });
+    state.history = state.history.slice(0, 50);
   } catch(e) { showToast('生成に失敗しました: ' + e.message, 'error'); }
   finally {
     state.loading = false;
@@ -321,13 +335,57 @@ async function translate() {
     const data = await apiCall('/api/translate', 'POST', { prompt: prompt, model: state.aiModel });
     state.eng     = data.text || '';
     state.showEng = true;
-    await saveHistory(state.eng, getNeg(), 'EN');
-    state.history.unshift({ prompt: state.eng, negative: getNeg(), model: state.modelId, lang: 'EN', date: new Date().toISOString() });
-    state.history = state.history.slice(0, 10);
+    const savedId = await saveHistory(state.eng, getNeg(), 'EN');
+    state.history.unshift({ id: savedId, prompt: state.eng, negative: getNeg(), model: state.modelId, lang: 'EN', date: new Date().toISOString(), favorite: false });
+    state.history = state.history.slice(0, 50);
   } catch(e) { showToast('翻訳に失敗しました: ' + e.message, 'error'); }
   finally {
     state.loading = false;
     setBtnLoading('btn-translate', false);
+    renderOutputPanel();
+    renderHistory();
+  }
+}
+
+// ── 画像から生成（アップロードした画像を解析して再現プロンプトを作る） ──
+let img2promptData = null; // { base64, mimeType }
+
+async function generateFromImage() {
+  if (!img2promptData || state.loading) return;
+  state.loading = true;
+  resetAll();
+  renderOutputPanel();
+  const btn = document.getElementById('btn-img2prompt-generate');
+  const btnText = document.getElementById('img2prompt-btn-text');
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.textContent = '解析中…';
+  try {
+    const model = getModel();
+    const analysisPrompt = mkImageAnalysisPrompt(model);
+    const negPrompt = mkNegPrompt(model, '', '');
+
+    // ポジティブ（画像解析）とネガティブを同時に生成する
+    const [posResult, negResult] = await Promise.all([
+      apiCall('/api/analyze-image', 'POST', {
+        image: img2promptData.base64, mimeType: img2promptData.mimeType,
+        prompt: analysisPrompt, model: state.aiModel,
+      }),
+      apiCall('/api/generate', 'POST', { prompt: negPrompt, model: state.aiModel })
+        .catch(function(e){ showToast('ネガティブプロンプトの生成に失敗しました: ' + e.message, 'error'); return { text: '' }; }),
+    ]);
+
+    state.aiPrompt  = posResult.text || '';
+    state.negPrompt = (negResult.text || '').split('\n').filter(function(l){ return l.trim(); }).join(', ').trim();
+
+    const savedId = await saveHistory(state.aiPrompt, getNeg(), 'JA');
+    state.history.unshift({ id: savedId, prompt: state.aiPrompt, negative: getNeg(), model: state.modelId, lang: 'JA', date: new Date().toISOString(), favorite: false });
+    state.history = state.history.slice(0, 50);
+    showToast('画像からプロンプトを生成しました', 'info');
+  } catch(e) { showToast('画像の解析に失敗しました: ' + e.message, 'error'); }
+  finally {
+    state.loading = false;
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = 'この画像を解析してプロンプト生成';
     renderOutputPanel();
     renderHistory();
   }
@@ -400,6 +458,7 @@ function switchMode(newMode) {
   document.getElementById('idea-input').value = '';
   renderAll();
   loadTemplates();
+  loadPresets();
 }
 
 function switchModel(modelId) {
@@ -429,12 +488,57 @@ function clearAll() {
   renderAll();
 }
 
+// 配列からランダムにn個（重複なし）を選ぶ
+function pickRandom(arr, n) {
+  const pool = (arr || []).slice();
+  const picked = [];
+  for (let i = 0; i < n && pool.length; i++) {
+    picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return picked;
+}
+
+// 「ランダム生成」ボタン: 現在表示中のモデルの全カテゴリから、フィールドごとに1〜2個ずつ
+// ランダムにタグを選び直す。アイデアに詰まったときの呼び水として使う。
+// 選択済みのタグは上書きされる（既存の選択と混ざって収拾がつかなくなるのを防ぐため）。
+function randomizeTags() {
+  const model = getModel();
+  if (!model.cats || !model.cats.length) return;
+
+  if (model.multiPerson) {
+    state.people.forEach(function(p) {
+      model.cats.filter(function(c){ return c.isPerson; }).forEach(function(cat) {
+        cat.personFields.forEach(function(f) {
+          const chips = f.chips || [];
+          if (!chips.length) return;
+          p[f.key] = f.single ? (pickRandom(chips, 1)[0] || '') : pickRandom(chips, 1 + Math.floor(Math.random() * 2));
+        });
+      });
+    });
+  }
+  model.cats.filter(function(c){ return !c.isPerson; }).forEach(function(cat) {
+    cat.fields.forEach(function(f) {
+      const chips = f.chips || [];
+      if (!chips.length) return;
+      const picked = f.single ? pickRandom(chips, 1) : pickRandom(chips, 1 + Math.floor(Math.random() * 2));
+      state.form[f.key] = { chips: picked, text: '' };
+    });
+  });
+
+  personCollapsed = {};
+  state.activeTpl = {};
+  resetAll();
+  renderAll();
+  showToast('タグをランダムに選び直しました', 'info');
+}
+
 function renderAll() {
   renderModeAndModelTabs();
   updateHintBar();
   renderCatTabs();
   renderCatContent();
   renderTemplateBar();
+  renderPresetBar();
   renderLoraPanel();
   renderOutputPanel();
   renderVariationTabs();
@@ -690,6 +794,136 @@ async function deleteTemplate(tpl) {
     renderOutputPanel();
   } catch(e) {
     showToast('削除に失敗しました: ' + e.message, 'error');
+  }
+}
+
+// ── フルプリセット ───────────────────────────────────────────────
+// テンプレート（カテゴリ単位の自由記述）とは別に、アイデア文＋全カテゴリのタグ選択＋
+// LoRAを丸ごと1クリックで呼び出せる「プリセット」。モードごとに一覧を持つ。
+function renderPresetBar() {
+  const list = document.getElementById('preset-list');
+  if (!list) return;
+  const presets = state.presets || [];
+  list.innerHTML = presets.map(function(p) {
+    return '<div class="tpl-btn-wrap">' +
+      '<button class="tpl-btn" data-preset-id="'+p.id+'" title="クリックして適用（アイデア・タグ・LoRAをまとめて復元します）">' +
+        '<i class="ti ti-bookmark"></i>'+p.label+
+      '</button>' +
+      '<button class="chip-del-btn" data-preset-del-id="'+p.id+'" title="このプリセットを削除"><i class="ti ti-trash"></i></button>' +
+      '</div>';
+  }).join('') +
+  '<button class="tpl-btn tpl-add-btn" id="btn-preset-register"><i class="ti ti-plus"></i>保存</button>';
+
+  list.querySelectorAll('[data-preset-id]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const p = presets.find(function(x){ return x.id === btn.dataset.presetId; });
+      if (p) applyPreset(p);
+    });
+  });
+  list.querySelectorAll('[data-preset-del-id]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const p = presets.find(function(x){ return x.id === btn.dataset.presetDelId; });
+      if (p) deletePreset(p);
+    });
+  });
+  const regBtn = document.getElementById('btn-preset-register');
+  if (regBtn) regBtn.addEventListener('click', openPresetSaveModal);
+}
+
+function applyPreset(preset) {
+  try {
+    const data = JSON.parse(preset.stateJson || '{}');
+    if (state.mode === 'image') {
+      state.people = (Array.isArray(data.people) && data.people.length) ? data.people : [mkPerson(state.imageCats)];
+    }
+    state.form = data.form || {};
+    state.idea = preset.idea || '';
+    const ideaInput = document.getElementById('idea-input');
+    if (ideaInput) ideaInput.value = state.idea;
+    const cnt = document.getElementById('char-count');
+    if (cnt) { cnt.textContent = state.idea.length>0?state.idea.length+'文字':''; cnt.style.color = state.idea.length>300?'#DC2626':state.idea.length>150?'#B45309':''; }
+
+    // LoRAはIDで、無ければ名前でフォールバックして探す（LoRA一覧が入れ替わっていても極力復元する）
+    const loraIds = [];
+    (data.loras || []).forEach(function(l) {
+      const found = state.loras.find(function(x){ return x.id === l.id; }) || state.loras.find(function(x){ return x.name === l.name; });
+      if (found) loraIds.push(found.id);
+    });
+    state.selectedLoras = loraIds;
+
+    personCollapsed = {};
+    state.activeTpl = {};
+    resetAll();
+    renderAll();
+    showToast('プリセット「'+preset.label+'」を適用しました', 'info');
+  } catch(e) {
+    showToast('プリセットの適用に失敗しました: ' + e.message, 'error');
+  }
+}
+
+async function deletePreset(preset) {
+  if (!confirm('プリセット「'+preset.label+'」を削除しますか？')) return;
+  try {
+    await apiCall('/api/presets?id=' + encodeURIComponent(preset.id), 'DELETE');
+    showToast('プリセットを削除しました', 'info');
+    await loadPresets();
+  } catch(e) {
+    showToast('削除に失敗しました: ' + e.message, 'error');
+  }
+}
+
+function openPresetSaveModal() {
+  const nameInput = document.getElementById('preset-name');
+  const status = document.getElementById('preset-save-status');
+  if (!nameInput) return;
+  nameInput.value = '';
+  if (status) { status.textContent = ''; status.style.color = ''; }
+  document.getElementById('preset-modal-overlay').classList.remove('hidden');
+  nameInput.focus();
+}
+
+function closePresetSaveModal() {
+  const overlay = document.getElementById('preset-modal-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+async function savePresetNow() {
+  const nameInput = document.getElementById('preset-name');
+  const status = document.getElementById('preset-save-status');
+  const saveBtn = document.getElementById('btn-preset-save');
+  if (!nameInput) return;
+  const name = nameInput.value.trim();
+  if (!name) {
+    if (status) { status.style.color = '#DC2626'; status.textContent = '名前を入力してください'; }
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  if (status) { status.style.color = ''; status.textContent = '保存中…'; }
+  try {
+    const snapshot = {
+      people: state.mode === 'image' ? state.people : undefined,
+      form: state.form,
+      loras: state.selectedLoras.map(function(id) {
+        const l = state.loras.find(function(x){ return x.id === id; });
+        return l ? { id: l.id, name: l.name } : null;
+      }).filter(Boolean),
+    };
+    const result = await apiCall('/api/presets', 'POST', {
+      label: name,
+      mode: state.mode === 'image' ? '画像' : '動画',
+      model: state.modelId,
+      idea: state.idea,
+      stateJson: JSON.stringify(snapshot),
+    });
+    if (result.error) throw new Error(typeof result.error === 'string' ? result.error : '保存に失敗しました');
+    if (status) { status.style.color = '#16A34A'; status.textContent = '保存しました ✓'; }
+    await loadPresets();
+    setTimeout(closePresetSaveModal, 800);
+  } catch(e) {
+    if (status) { status.style.color = '#DC2626'; status.textContent = '保存に失敗しました: ' + e.message; }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -1096,8 +1330,29 @@ function renderVariationTabs() {
 
 let historyExpanded = false; // 「もっと見る」で5件超を表示するか
 
+// 履歴1件分のHTML。テキスト部分（data-hi）はクリックで復元、★とゴミ箱は別ボタンとして
+// 独立させている（.history-itemがbuttonではなくdivなので、ネストせず並列に置ける）。
+function historyItemHTML(h, i) {
+  const m = getModels()[h.model] || getModel();
+  const d = h.date ? new Date(h.date) : null;
+  const today = new Date().toDateString();
+  const dateLabel = !d ? '' : (d.toDateString()===today
+    ? d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})
+    : d.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
+  const favIcon = h.favorite ? 'ti-star-filled' : 'ti-star';
+  return '<div class="history-item">' +
+    '<span class="hist-lang" style="color:'+(h.lang==='EN'?'#2563EB':m.color||'#C23B72')+'">'+h.lang+'</span>' +
+    '<span class="hist-text" data-hi="'+i+'" title="'+escapeHtml(h.prompt||'')+'">'+(h.prompt||'').slice(0,60)+((h.prompt||'').length>60?'…':'')+'</span>' +
+    '<span class="hist-date">'+dateLabel+'</span>' +
+    '<button class="hist-star'+(h.favorite?' hist-star-on':'')+'" data-hi-fav="'+i+'" title="'+(h.favorite?'お気に入り解除':'お気に入りに追加')+'"><i class="ti '+favIcon+'"></i></button>' +
+    '<button class="hist-del" data-hi-del="'+i+'" title="削除"><i class="ti ti-trash"></i></button>' +
+    '</div>';
+}
+
 function renderHistory() {
   const section  = document.getElementById('history-section');
+  const favWrap  = document.getElementById('history-fav-section');
+  const favList  = document.getElementById('history-fav-list');
   const list     = document.getElementById('history-list');
   const moreWrap = document.getElementById('history-more-wrap');
   const moreBtn  = document.getElementById('btn-history-more');
@@ -1105,34 +1360,76 @@ function renderHistory() {
   if (!state.history.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
 
-  const visibleCount = historyExpanded ? Math.min(state.history.length, 20) : 5;
-  const today = new Date().toDateString();
-  list.innerHTML = state.history.slice(0, visibleCount).map(function(h,i) {
-    const m = getModels()[h.model] || getModel();
-    const d = h.date ? new Date(h.date) : null;
-    // 今日以外の履歴は日付も表示（時刻だけだと何日前か分からないため）
-    const dateLabel = !d ? '' : (d.toDateString()===today
-      ? d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})
-      : d.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
-    return '<button class="history-item" data-hi="'+i+'" title="'+escapeHtml(h.prompt||'')+'">' +
-      '<span class="hist-lang" style="color:'+(h.lang==='EN'?'#2563EB':m.color||'#C23B72')+'">'+h.lang+'</span>' +
-      '<span class="hist-text">'+(h.prompt||'').slice(0,60)+((h.prompt||'').length>60?'…':'')+'</span>' +
-      '<span class="hist-date">'+dateLabel+'</span>' +
-      '</button>';
-  }).join('');
-  list.querySelectorAll('.history-item').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      const h = state.history[parseInt(btn.dataset.hi)];
-      if (h.lang==='EN') { state.eng=h.prompt; state.showEng=true; state.editEng=false; }
-      else               { state.aiPrompt=h.prompt; resetLang(); }
-      // ネガティブプロンプトも記録されていれば一緒に復元する
-      if (h.negative) state.negPrompt = h.negative;
-      renderOutputPanel();
+  // お気に入りは件数上限に関わらず常に全件表示、それ以外は従来どおり5件→もっと見る
+  const indexed = state.history.map(function(h,i){ return {h:h, i:i}; });
+  const favs    = indexed.filter(function(x){ return x.h.favorite; });
+  const others  = indexed.filter(function(x){ return !x.h.favorite; });
+
+  if (favWrap) favWrap.classList.toggle('hidden', !favs.length);
+  if (favList) favList.innerHTML = favs.map(function(x){ return historyItemHTML(x.h, x.i); }).join('');
+
+  const visibleCount = historyExpanded ? Math.min(others.length, 20) : 5;
+  list.innerHTML = others.slice(0, visibleCount).map(function(x){ return historyItemHTML(x.h, x.i); }).join('');
+
+  [favList, list].forEach(function(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-hi]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        const h = state.history[parseInt(el.dataset.hi)];
+        if (!h) return;
+        if (h.lang==='EN') { state.eng=h.prompt; state.showEng=true; state.editEng=false; }
+        else               { state.aiPrompt=h.prompt; resetLang(); }
+        if (h.negative) state.negPrompt = h.negative;
+        renderOutputPanel();
+      });
+    });
+    container.querySelectorAll('[data-hi-fav]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleHistoryFavorite(parseInt(btn.dataset.hiFav));
+      });
+    });
+    container.querySelectorAll('[data-hi-del]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        deleteHistoryItem(parseInt(btn.dataset.hiDel));
+      });
     });
   });
 
-  if (moreWrap) moreWrap.classList.toggle('hidden', state.history.length <= 5);
-  if (moreBtn)  moreBtn.textContent = historyExpanded ? '閉じる' : 'もっと見る（他'+(state.history.length-5)+'件）';
+  if (moreWrap) moreWrap.classList.toggle('hidden', others.length <= 5);
+  if (moreBtn)  moreBtn.textContent = historyExpanded ? '閉じる' : 'もっと見る（他'+(others.length-5)+'件）';
+}
+
+async function toggleHistoryFavorite(idx) {
+  const h = state.history[idx];
+  if (!h) return;
+  if (!h.id) { showToast('この履歴はお気に入り登録できません', 'error'); return; }
+  const next = !h.favorite;
+  h.favorite = next; // 楽観的に即反映
+  renderHistory();
+  try {
+    await apiCall('/api/history?id=' + encodeURIComponent(h.id), 'PATCH', { favorite: next });
+  } catch(e) {
+    h.favorite = !next; // 失敗したら元に戻す
+    renderHistory();
+    showToast('お気に入りの更新に失敗しました: ' + e.message, 'error');
+  }
+}
+
+async function deleteHistoryItem(idx) {
+  const h = state.history[idx];
+  if (!h) return;
+  if (!h.id) { showToast('この履歴は削除できません', 'error'); return; }
+  if (!confirm('この履歴を削除しますか？')) return;
+  try {
+    await apiCall('/api/history?id=' + encodeURIComponent(h.id), 'DELETE');
+    state.history.splice(idx, 1);
+    renderHistory();
+    showToast('履歴を削除しました', 'info');
+  } catch(e) {
+    showToast('削除に失敗しました: ' + e.message, 'error');
+  }
 }
 
 // ── テンプレート登録 ─────────────────────────────────────────────
@@ -1332,6 +1629,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   document.getElementById('btn-copy-neg').addEventListener('click', copyNeg);
   document.getElementById('btn-clear').addEventListener('click', clearAll);
 
+  // ランダム生成ボタン
+  const btnRandom = document.getElementById('btn-random');
+  if (btnRandom) btnRandom.addEventListener('click', randomizeTags);
+
   const btnHistMore = document.getElementById('btn-history-more');
   if (btnHistMore) btnHistMore.addEventListener('click', function() {
     historyExpanded = !historyExpanded;
@@ -1377,6 +1678,53 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
   });
 
+  // プリセット保存モーダル
+  const presetModalClose = document.getElementById('preset-modal-close');
+  if (presetModalClose) presetModalClose.addEventListener('click', closePresetSaveModal);
+  const presetModalOverlay = document.getElementById('preset-modal-overlay');
+  if (presetModalOverlay) presetModalOverlay.addEventListener('click', function(e) {
+    if (e.target === e.currentTarget) closePresetSaveModal();
+  });
+  const btnPresetSave = document.getElementById('btn-preset-save');
+  if (btnPresetSave) btnPresetSave.addEventListener('click', savePresetNow);
+
+  // 画像から生成（アップロード画像を解析して再現プロンプトを作る）
+  const img2promptHeader = document.getElementById('img2prompt-header');
+  if (img2promptHeader) img2promptHeader.addEventListener('click', function() {
+    const body = document.getElementById('img2prompt-body');
+    const chevron = document.getElementById('img2prompt-chevron');
+    if (body) body.classList.toggle('hidden');
+    if (chevron) { chevron.classList.toggle('ti-chevron-down'); chevron.classList.toggle('ti-chevron-up'); }
+  });
+  const img2promptInput = document.getElementById('img2prompt-file');
+  if (img2promptInput) img2promptInput.addEventListener('change', function(e) {
+    const f = e.target.files[0];
+    const preview = document.getElementById('img2prompt-preview');
+    const genBtn = document.getElementById('btn-img2prompt-generate');
+    if (!f) {
+      img2promptData = null;
+      if (genBtn) genBtn.disabled = true;
+      if (preview) preview.classList.add('hidden');
+      return;
+    }
+    if (f.size > 8 * 1024 * 1024) {
+      showToast('画像サイズは8MB以下にしてください', 'error');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const dataUrl = ev.target.result; // "data:image/png;base64,XXXX"
+      const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+      img2promptData = { base64: m ? m[2] : '', mimeType: m ? m[1] : (f.type || 'image/jpeg') };
+      if (preview) { preview.src = dataUrl; preview.classList.remove('hidden'); }
+      if (genBtn) genBtn.disabled = false;
+    };
+    reader.readAsDataURL(f);
+  });
+  const btnImg2PromptGen = document.getElementById('btn-img2prompt-generate');
+  if (btnImg2PromptGen) btnImg2PromptGen.addEventListener('click', generateFromImage);
+
   // 初期描画: 画像モードのタグ（Notion Tags DB）を読み込んでから、
   // 人物オブジェクトの初期化・カテゴリタブ描画を行う
   renderCatTabs(); // 「タグを読み込み中…」を即座に表示
@@ -1387,6 +1735,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   renderAll();
   loadTemplates();
+  loadPresets();
   loadHistory();
   loadLoras();
 });

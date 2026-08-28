@@ -163,13 +163,44 @@
         </div>
       </div>
 
+      <!-- 画像から生成（アップロード画像を解析して再現プロンプトを作る。デフォルトは折りたたみ） -->
+      <div class="lora-panel" id="img2prompt-panel">
+        <div class="lora-header" id="img2prompt-header">
+          <i class="ti ti-photo-scan"></i> 画像から生成
+          <span class="lora-note">— 画像を読み込んで再現プロンプトを作成します</span>
+          <i class="ti ti-chevron-down" id="img2prompt-chevron" style="margin-left:auto"></i>
+        </div>
+        <div class="img2prompt-body hidden" id="img2prompt-body">
+          <input type="file" id="img2prompt-file" accept="image/*" class="tpl-input" />
+          <img id="img2prompt-preview" class="img2prompt-preview hidden" alt="プレビュー" />
+          <button class="btn-generate img2prompt-generate-btn" id="btn-img2prompt-generate" disabled>
+            <i class="ti ti-sparkles"></i> <span id="img2prompt-btn-text">この画像を解析してプロンプト生成</span>
+          </button>
+          <div class="img2prompt-hint">
+            <i class="ti ti-info-circle"></i>
+            アップロードした画像をAIが解析し、選択中のモデル向けにできるだけ忠実に再現するプロンプトを作成します。タグ選択とは独立して動作し、結果は上のポジティブ/ネガティブプロンプトに反映されます。
+          </div>
+        </div>
+      </div>
+
       <!-- LoRAパネル（デフォルトは折りたたみ） -->
       <div class="lora-panel hidden" id="lora-panel"></div>
+
+      <!-- プリセットバー（アイデア・タグ・LoRAを丸ごと保存/呼び出し） -->
+      <div class="template-bar" id="preset-bar">
+        <div class="template-bar-label">
+          <i class="ti ti-bookmark"></i>
+          <span>プリセット</span>
+          <span class="template-note">— アイデア・タグ・LoRAをまとめて呼び出せます</span>
+        </div>
+        <div class="template-list" id="preset-list"></div>
+      </div>
 
       <!-- タグ調整セクションの区切り -->
       <div class="builder-divider">
         <i class="ti ti-adjustments"></i>
         <span>ここから下でタグを選ぶと、上のアイデアと組み合わせて反映されます（任意）</span>
+        <button class="btn-random" id="btn-random"><i class="ti ti-dice"></i> ランダム生成</button>
       </div>
 
       <!-- カテゴリタブ（動的生成） -->
@@ -277,6 +308,10 @@
 
       <!-- 履歴 -->
       <div class="history-section hidden" id="history-section">
+        <div class="history-fav-section hidden" id="history-fav-section">
+          <div class="history-label"><i class="ti ti-star-filled"></i> お気に入り</div>
+          <div id="history-fav-list"></div>
+        </div>
         <div class="history-label"><i class="ti ti-history"></i> 履歴</div>
         <div id="history-list"></div>
         <div class="history-more-wrap hidden" id="history-more-wrap">
@@ -318,6 +353,22 @@
         <button class="btn-tpl-save" id="btn-tpl-save"><i class="ti ti-device-floppy"></i> <span id="tpl-save-btn-text">保存</span></button>
         <button class="btn-tpl-delete hidden" id="btn-tpl-delete"><i class="ti ti-trash"></i> このテンプレートを削除</button>
         <div class="tpl-save-status" id="tpl-save-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- プリセット保存モーダル -->
+  <div class="modal-overlay hidden" id="preset-modal-overlay">
+    <div class="modal tpl-register-modal">
+      <button class="modal-close" id="preset-modal-close"><i class="ti ti-x"></i></button>
+      <div class="tpl-modal-title"><i class="ti ti-bookmark"></i> プリセット保存</div>
+      <div class="tpl-form">
+        <label class="tpl-field-label" for="preset-name">名前</label>
+        <input type="text" id="preset-name" class="tpl-input" placeholder="例）お気に入りの清楚系ヒロイン一式" />
+        <div class="tpl-model-note">現在のアイデア・タグ選択・LoRAをまとめて保存します。</div>
+
+        <button class="btn-tpl-save" id="btn-preset-save"><i class="ti ti-device-floppy"></i> 保存</button>
+        <div class="tpl-save-status" id="preset-save-status"></div>
       </div>
     </div>
   </div>

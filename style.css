@@ -293,8 +293,26 @@ textarea { font-family: var(--font); }
   font-weight: 500;
   color: var(--text-muted);
   border-top: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 .builder-divider .ti { color: var(--accent); font-size: 13px; flex-shrink: 0; }
+.btn-random {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.btn-random:hover { border-color: var(--accent); color: var(--accent); }
+.btn-random .ti { color: inherit; }
 
 /* ── カテゴリタブ ───────────────────────────────────────────────── */
 /* 10カテゴリに増えたため、横スクロールではなく2段に折り返して
@@ -415,6 +433,22 @@ textarea { font-family: var(--font); }
   transition: all 0.15s;
 }
 .tpl-edit-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent)10; }
+/* プリセットの削除ボタン（.tpl-edit-btnと同じ位置取りだが、破壊的操作なので赤ホバー） */
+.chip-del-btn {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 9px;
+  transition: all 0.15s;
+}
+.chip-del-btn:hover { color: #DC2626; border-color: #DC2626; background: #FEF2F2; }
 .tpl-img {
   width: 60px;
   height: 60px;
@@ -553,7 +587,29 @@ textarea { font-family: var(--font); }
   user-select: none;
 }
 /* 折りたたみ中は本文が無いのでヘッダー直下の余白は付けず、展開時のみ本文とのgapを空ける */
-.lora-list, .lora-empty { margin-top: 10px; }
+.lora-list, .lora-empty, .img2prompt-body { margin-top: 10px; }
+/* ── 画像から生成パネル（.lora-panel/.lora-headerのスタイルを流用） ────── */
+.img2prompt-preview {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: var(--surface2);
+}
+.img2prompt-generate-btn { margin-top: 10px; width: 100%; justify-content: center; }
+.img2prompt-generate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.img2prompt-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.img2prompt-hint .ti { color: var(--accent); font-size: 13px; flex-shrink: 0; margin-top: 1px; }
 .lora-header .ti { color: var(--accent); font-size: 14px; flex-shrink: 0; }
 .lora-header > .ti:last-child { color: var(--text-muted); font-size: 13px; }
 .lora-note { color: var(--text-muted); font-weight: 400; font-size: 11px; }
@@ -803,8 +859,25 @@ textarea { font-family: var(--font); }
 }
 .history-item:hover { background: var(--surface2); border-color: var(--accent)40; }
 .hist-lang  { font-weight: 700; flex-shrink: 0; }
-.hist-text  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.hist-text  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; cursor: pointer; }
 .hist-date  { flex-shrink: 0; color: var(--text-muted); }
+.hist-star, .hist-del {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.hist-star:hover { color: #D97706; background: var(--surface2); }
+.hist-star-on    { color: #D97706; }
+.hist-del:hover  { color: #DC2626; background: var(--surface2); }
+.history-fav-section { margin-bottom: 10px; }
 .history-more-wrap { margin-top: 2px; }
 .btn-history-more {
   width: 100%;
