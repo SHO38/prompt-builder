@@ -17,6 +17,17 @@ const MINOR_PERSON_TYPES = ["少女","少年","子供","幼児","赤ちゃん","
 const POS  = ["左の女の子","右の女の子","中央の女の子","4人目の女の子"];
 const BPOS = ["左の男の子","右の男の子","中央の男の子","4人目の男の子"];
 
+// 画面比率（アスペクト比）の選択肢。value="" は「指定なし」。
+const ASPECT_RATIOS = [
+  { value: "",     label: "指定なし" },
+  { value: "1:1",  label: "1:1（正方形）" },
+  { value: "4:3",  label: "4:3（横）" },
+  { value: "3:4",  label: "3:4（縦）" },
+  { value: "16:9", label: "16:9（横長）" },
+  { value: "9:16", label: "9:16（縦長・スマホ）" },
+  { value: "21:9", label: "21:9（シネマワイド）" },
+];
+
 function fGet(form, key) {
   const v = form[key] || {};
   return [...(v.chips || []), (v.text || '').trim()].filter(Boolean);
@@ -379,7 +390,7 @@ const MODEL_GUIDES = {
       "（短いアイデアから感情・動き・光まで肉付けしている点に注目）",
 };
 
-function mkGenPrompt(model, idea, fs, people) {
+function mkGenPrompt(model, idea, fs, people, aspectRatio) {
   var isVid = ["wan","veo","ltx","minimax"].indexOf(model.id) >= 0;
   var multiChar = people && people.length > 1;
   var hasMinor = (people || []).some(function(p){ return MINOR_PERSON_TYPES.indexOf(p.personType) >= 0; });
@@ -389,6 +400,14 @@ function mkGenPrompt(model, idea, fs, people) {
   if (idea) parts.push("【アイデア（このイメージを核に、具体的な描写へ大きく膨らませる出発点）】\n"+idea);
   if (fs)   parts.push("【必ず反映する要素（単語をそのまま並べるのではなく、描写に発展させること）】\n"+fs);
   if (multiChar) parts.push("【複数人物の指定】\n複数キャラクターが登場します。同性同士は左/右などの位置で、異性同士は男の子/女の子で識別して描写してください。");
+  if (aspectRatio) {
+    var isTall = ["3:4","9:16"].indexOf(aspectRatio) >= 0;
+    var isWide = ["4:3","16:9","21:9"].indexOf(aspectRatio) >= 0;
+    var arHint = isTall ? "縦長の構図（全身や近距離のポートレート、上下方向に広がる情景など）が映えるように意識すること"
+      : isWide ? "横長の構図（環境の広がりや複数人物、パノラマ的な情景など）が映えるように意識すること"
+      : "正方形の画面に収まるバランスの良い構図を意識すること";
+    parts.push("【画面比率】\n出力のアスペクト比は "+aspectRatio+" です。"+arHint+"。");
+  }
 
   // 「言い換え」ではなく「創作」であることを最優先で伝える（末尾に置くより先頭に置いた方が
   // 効きやすいモデルがあるため、ガイド本文より前に配置している）。

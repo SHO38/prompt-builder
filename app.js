@@ -42,6 +42,7 @@ const state = {
   imageCats:   [],          // Notion Tags DBから読み込んだ画像モード用カテゴリ（動的）
   tagsReady:   false,
   presets:     [],          // フルプリセット一覧（アイデア＋タグ＋LoRAをまとめて保存したもの）
+  aspectRatio: '',          // 画面比率の指定（例: "9:16"）。空文字は「指定なし」
 };
 
 function getModels()  { return state.mode === 'image' ? IMG_MODELS : VID_MODELS; }
@@ -96,13 +97,14 @@ function getJaPrompt() {
   return rawModel.build(state.form);
 }
 
-// 画面表示・コピー用の最終テキスト。LoRAトリガーワードはAIを介さず、
-// ここで名称・表記そのままに末尾へ追加する（JA/EN どちらの表示でも常に付与）。
+// 画面表示・コピー用の最終テキスト。LoRAトリガーワードと画面比率はAIを介さず、
+// ここで末尾へ追加する（JA/EN どちらの表示でも、タグ生成・AI生成どちらでも常に付与）。
 function getPromptText() {
   const src = state.showEng ? state.eng : getJaPrompt();
   let text = src.split('\n').filter(function(l){ return l.trim(); }).join('\n');
   const lora = getLoraText();
   if (lora) text = text ? text + '\n' + lora : lora;
+  if (state.aspectRatio) text = text ? text + '\naspect ratio ' + state.aspectRatio : 'aspect ratio ' + state.aspectRatio;
   return text;
 }
 
@@ -257,7 +259,7 @@ async function generate() {
     const model = getModel();
     const idea  = state.idea.trim();
     const fs    = getFS();
-    const posPrompt = mkGenPrompt(model, idea, fs, state.people);
+    const posPrompt = mkGenPrompt(model, idea, fs, state.people, state.aspectRatio);
     const negPrompt = mkNegPrompt(model, idea, fs);
 
     // ポジティブ・ネガティブを同時に1回ずつ生成する。タグ抜けチェック→自動再生成は
@@ -873,6 +875,9 @@ function applyPreset(preset) {
       if (found) loraIds.push(found.id);
     });
     state.selectedLoras = loraIds;
+    state.aspectRatio = data.aspectRatio || '';
+    const aspectSelectEl = document.getElementById('aspect-select');
+    if (aspectSelectEl) aspectSelectEl.value = state.aspectRatio;
 
     personCollapsed = {};
     state.activeTpl = {};
@@ -930,6 +935,7 @@ async function savePresetNow() {
         const l = state.loras.find(function(x){ return x.id === id; });
         return l ? { id: l.id, name: l.name } : null;
       }).filter(Boolean),
+      aspectRatio: state.aspectRatio,
     };
     const result = await apiCall('/api/presets', 'POST', {
       label: name,
@@ -1310,17 +1316,20 @@ function renderOutputInputsSummary() {
     const l = state.loras.find(function(x){ return x.id === id; });
     return l ? l.name : null;
   }).filter(Boolean);
+  const aspectLabel = (ASPECT_RATIOS.find(function(a){ return a.value === state.aspectRatio; }) || {}).label;
 
-  const hasAny = !!(idea || tagsText || loraNames.length);
+  const hasAny = !!(idea || tagsText || loraNames.length || state.aspectRatio);
   wrap.classList.toggle('hidden', !hasAny);
   if (!hasAny) return;
 
   const rowIdea = document.getElementById('oi-row-idea');
   const rowTags = document.getElementById('oi-row-tags');
   const rowLora = document.getElementById('oi-row-lora');
+  const rowAspect = document.getElementById('oi-row-aspect');
   const valIdea = document.getElementById('oi-idea-val');
   const valTags = document.getElementById('oi-tags-val');
   const valLora = document.getElementById('oi-lora-val');
+  const valAspect = document.getElementById('oi-aspect-val');
 
   if (rowIdea) rowIdea.classList.toggle('hidden', !idea);
   if (valIdea) valIdea.textContent = idea;
@@ -1330,6 +1339,9 @@ function renderOutputInputsSummary() {
 
   if (rowLora) rowLora.classList.toggle('hidden', !loraNames.length);
   if (valLora) valLora.textContent = loraNames.join('、');
+
+  if (rowAspect) rowAspect.classList.toggle('hidden', !state.aspectRatio);
+  if (valAspect) valAspect.textContent = aspectLabel || state.aspectRatio;
 }
 
 function renderVariationTabs() {
@@ -1613,6 +1625,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     modelSelect.value = state.aiModel;
     modelSelect.addEventListener('change', function() {
       state.aiModel = modelSelect.value;
+    });
+  }
+
+  // 画面比率（アスペクト比）選択
+  const aspectSelect = document.getElementById('aspect-select');
+  if (aspectSelect) {
+    aspectSelect.innerHTML = ASPECT_RATIOS.map(function(a) {
+      return '<option value="'+a.value+'">'+a.label+'</option>';
+    }).join('');
+    aspectSelect.value = state.aspectRatio;
+    aspectSelect.addEventListener('change', function() {
+      state.aspectRatio = aspectSelect.value;
+      renderOutputPanel();
     });
   }
 

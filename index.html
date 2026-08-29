@@ -227,6 +227,10 @@
           <i class="ti ti-sparkles"></i> AIでプロンプト生成
         </button>
         <span class="generate-bar-hint"><i class="ti ti-arrow-left"></i> アイデア入力・タグをもとに生成します</span>
+        <div class="aspect-select-wrap">
+          <label class="aspect-select-label" for="aspect-select"><i class="ti ti-crop"></i> 画面比率</label>
+          <select id="aspect-select" class="model-select"></select>
+        </div>
       </div>
 
       <!-- バリエーションタブ -->
@@ -278,6 +282,11 @@
               <i class="ti ti-adjustments"></i>
               <span class="oi-label">LoRA</span>
               <span class="oi-val" id="oi-lora-val"></span>
+            </div>
+            <div class="oi-row hidden" id="oi-row-aspect">
+              <i class="ti ti-crop"></i>
+              <span class="oi-label">画面比率</span>
+              <span class="oi-val" id="oi-aspect-val"></span>
             </div>
           </div>
 
