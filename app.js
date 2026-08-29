@@ -245,41 +245,6 @@ function getFS() {
   return parts.join('\n');
 }
 
-// 現在選択中の全チップ値をフラットな配列で集める（生成結果の「タグ抜け」チェック用）
-function collectAllTagValues() {
-  const vals = [];
-  const model = getModel();
-  if (model.multiPerson) {
-    state.people.forEach(function(p) {
-      model.cats.filter(function(c){ return c.isPerson; }).forEach(function(cat) {
-        cat.personFields.forEach(function(f) {
-          const v = p[f.key];
-          if (Array.isArray(v)) vals.push.apply(vals, v);
-          else if (v) vals.push(v);
-        });
-      });
-    });
-  }
-  model.cats.filter(function(c){ return !c.isPerson; }).forEach(function(cat) {
-    cat.fields.forEach(function(f) {
-      const v = state.form[f.key];
-      if (v && v.chips) vals.push.apply(vals, v.chips);
-    });
-  });
-  return vals;
-}
-
-// 指定したタグの主要な語幹が生成結果に含まれているか、緩やかにチェックする。
-// 「紫の瞳」のようなチップ値は語尾（の瞳/髪/服など）を除いた核（「紫」）だけ一致すれば
-// OKとする簡易判定（AIが表現を言い換えても拾えるように）。
-function tagsAllIncluded(text, tagValues) {
-  return tagValues.every(function(v) {
-    if (text.indexOf(v) >= 0) return true;
-    const core = v.replace(/(の瞳|の目|髪型|ヘア|スタイル|服|着|衣装|ドレス|ローブ|アーマー|スーツ)$/, '');
-    return !!core && core.length >= 2 && text.indexOf(core) >= 0;
-  });
-}
-
 async function generate() {
   if (!hasInput() || state.loading) return;
   state.loading = true;
@@ -294,23 +259,17 @@ async function generate() {
     const fs    = getFS();
     const posPrompt = mkGenPrompt(model, idea, fs, state.people);
     const negPrompt = mkNegPrompt(model, idea, fs);
-    const tagValues = collectAllTagValues();
 
-    // ネガティブは並行して生成しておく（失敗してもポジティブの結果を無駄にしないよう個別にcatch）
-    const negPromise = apiCall('/api/generate', 'POST', { prompt: negPrompt, model: state.aiModel })
-      .catch(function(e){ showToast('ネガティブプロンプトの生成に失敗しました: ' + e.message, 'error'); return { text: '' }; });
+    // ポジティブ・ネガティブを同時に1回ずつ生成する。タグ抜けチェック→自動再生成は
+    // Worker側の内部リトライと掛け算的に重なって生成時間が非常に長くなっていたため廃止し、
+    // プロンプト側の指示強化（厳守事項・専門家チーム設定）で要素の網羅性を担保する方針にした。
+    const [posResult, negResult] = await Promise.all([
+      apiCall('/api/generate', 'POST', { prompt: posPrompt, model: state.aiModel }),
+      apiCall('/api/generate', 'POST', { prompt: negPrompt, model: state.aiModel })
+        .catch(function(e){ showToast('ネガティブプロンプトの生成に失敗しました: ' + e.message, 'error'); return { text: '' }; }),
+    ]);
 
-    // ポジティブは、指定したタグが本文から抜け落ちていないかを確認し、
-    // 抜けていた場合のみ最大1回まで生成し直す（AIの出力ゆらぎ対策）
-    let posText = '';
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const posResult = await apiCall('/api/generate', 'POST', { prompt: posPrompt, model: state.aiModel });
-      posText = posResult.text || '';
-      if (!tagValues.length || tagsAllIncluded(posText, tagValues)) break;
-    }
-
-    const negResult = await negPromise;
-    state.aiPrompt  = posText;
+    state.aiPrompt  = posResult.text || '';
     state.negPrompt = (negResult.text || '').split('\n').filter(function(l){ return l.trim(); }).join(', ').trim();
 
     const savedId = await saveHistory(state.aiPrompt, getNeg(), 'JA');
@@ -540,9 +499,20 @@ function pickRandom(arr, n) {
   return picked;
 }
 
-// 「ランダム生成」ボタン: 現在表示中のモデルの全カテゴリから、フィールドごとに1〜2個ずつ
-// ランダムにタグを選び直す。アイデアに詰まったときの呼び水として使う。
-// 選択済みのタグは上書きされる（既存の選択と混ざって収拾がつかなくなるのを防ぐため）。
+// 配列をランダムな順序に並べ替えたコピーを返す
+function shuffle(arr) {
+  return (arr || []).slice().sort(function(){ return Math.random() - 0.5; });
+}
+
+// 1カテゴリにつき、ランダムに埋めるフィールド数の上限。
+// 各カテゴリの全フィールドを埋めると「瞳の色が3種類」「髪型が4種類」のような
+// 矛盾だらけの結果になるため、代表的な数個だけに絞って現実的な組み合わせにする。
+const RANDOM_FIELDS_PER_CATEGORY = 3;
+
+// 「ランダム生成」ボタン: 現在表示中のモデルの各カテゴリから、代表的なフィールドを
+// 数個だけ選んでランダムにタグを埋める。アイデアに詰まったときの呼び水として使う。
+// 選択済みのタグは一度全てクリアしてから埋め直す（既存の選択と混ざって収拾が
+// つかなくなるのを防ぐため）。
 function randomizeTags() {
   const model = getModel();
   if (!model.cats || !model.cats.length) return;
@@ -550,20 +520,30 @@ function randomizeTags() {
   if (model.multiPerson) {
     state.people.forEach(function(p) {
       model.cats.filter(function(c){ return c.isPerson; }).forEach(function(cat) {
-        cat.personFields.forEach(function(f) {
-          const chips = f.chips || [];
-          if (!chips.length) return;
-          p[f.key] = f.single ? (pickRandom(chips, 1)[0] || '') : pickRandom(chips, 1 + Math.floor(Math.random() * 2));
+        // まずこのカテゴリの全フィールドを空にする
+        cat.personFields.forEach(function(f) { p[f.key] = f.single ? '' : []; });
+
+        // personType（人物属性）は人物の軸になるので必ず1つ選ぶ
+        const personTypeField = cat.personFields.find(function(f){ return f.key === 'personType'; });
+        if (personTypeField && personTypeField.chips.length) {
+          p[personTypeField.key] = pickRandom(personTypeField.chips, 1)[0] || '';
+        }
+        // それ以外は数個のフィールドだけランダムに選んで埋める（矛盾を避けるため）
+        const otherFields = cat.personFields.filter(function(f){ return f.key !== 'personType'; });
+        shuffle(otherFields).slice(0, RANDOM_FIELDS_PER_CATEGORY).forEach(function(f) {
+          if (!f.chips.length) return;
+          const picked = pickRandom(f.chips, 1);
+          p[f.key] = f.single ? (picked[0] || '') : picked;
         });
       });
     });
   }
   model.cats.filter(function(c){ return !c.isPerson; }).forEach(function(cat) {
-    cat.fields.forEach(function(f) {
-      const chips = f.chips || [];
-      if (!chips.length) return;
-      const picked = f.single ? pickRandom(chips, 1) : pickRandom(chips, 1 + Math.floor(Math.random() * 2));
-      state.form[f.key] = { chips: picked, text: '' };
+    cat.fields.forEach(function(f) { state.form[f.key] = { chips: [], text: '' }; });
+    shuffle(cat.fields).slice(0, RANDOM_FIELDS_PER_CATEGORY).forEach(function(f) {
+      if (!f.chips.length) return;
+      const picked = pickRandom(f.chips, 1);
+      state.form[f.key] = { chips: f.single ? picked.slice(0, 1) : picked, text: '' };
     });
   });
 
