@@ -1027,12 +1027,17 @@ function renderCatContent() {
 
 function renderFieldHTML(f) {
   const chips = (state.form[f.key] && state.form[f.key].chips) || [];
-  const chipsHTML = (f.chips||[]).map(function(c) {
-    return '<button class="chip'+(chips.indexOf(c)>=0?' chip-on':'')+'" data-chip-key="'+f.key+'" data-chip-val="'+c+'" data-single="'+(f.single?'1':'0')+'">'+c+'</button>';
+  const groups = (f.chipGroups && f.chipGroups.length) ? f.chipGroups : [{ label: null, chips: f.chips||[] }];
+  const chipsHTML = groups.map(function(g) {
+    const headHTML = g.label ? '<div class="chip-subhead">'+g.label+'</div>' : '';
+    const btnsHTML = g.chips.map(function(c) {
+      return '<button class="chip'+(chips.indexOf(c)>=0?' chip-on':'')+'" data-chip-key="'+f.key+'" data-chip-val="'+c+'" data-single="'+(f.single?'1':'0')+'">'+c+'</button>';
+    }).join('');
+    return headHTML+'<div class="chip-wrap">'+btnsHTML+'</div>';
   }).join('');
   const textHTML = f.ph !== undefined ?
     '<textarea class="neg-input" data-field-key="'+f.key+'" placeholder="'+f.ph+'" rows="2"></textarea>' : '';
-  return '<div class="field"><div class="field-label">'+f.label+'</div><div class="chip-wrap">'+chipsHTML+'</div>'+textHTML+'</div>';
+  return '<div class="field"><div class="field-label">'+f.label+'</div>'+chipsHTML+textHTML+'</div>';
 }
 
 // 複数の元カテゴリを1つのタブにまとめているグループ（例: キャラクター＝基本+顔目表情+髪型髪色）では、
@@ -1089,12 +1094,16 @@ function renderPersonSect(idx, catDef) {
   const fieldsHTML = renderFieldsWithHeadings(fields, function(cfg) {
     const key = cfg.key;
     const cur = cfg.single ? (p[key] ? [p[key]] : []) : (Array.isArray(p[key]) ? p[key] : []);
-    return '<div class="field"><div class="field-label">'+cfg.label+'</div><div class="chip-wrap">' +
-      cfg.chips.map(function(c) {
+    const groups = (cfg.chipGroups && cfg.chipGroups.length) ? cfg.chipGroups : [{ label: null, chips: cfg.chips||[] }];
+    const chipsHTML = groups.map(function(g) {
+      const headHTML = g.label ? '<div class="chip-subhead">'+g.label+'</div>' : '';
+      const btnsHTML = g.chips.map(function(c) {
         const on = cur.indexOf(c)>=0;
         return '<button class="chip'+(on?' chip-on':'')+'" data-p="'+idx+'" data-chip-key="'+key+'" data-chip-val="'+c+'" data-single="'+(cfg.single?'1':'0')+'" style="'+(on?'border-color:'+color+';color:'+color+';background:'+color+'18;':'')+'">' + c + '</button>';
-      }).join('') +
-      '</div></div>';
+      }).join('');
+      return headHTML+'<div class="chip-wrap">'+btnsHTML+'</div>';
+    }).join('');
+    return '<div class="field"><div class="field-label">'+cfg.label+'</div>'+chipsHTML+'</div>';
   });
 
   const collapsed = !!personCollapsed[idx];

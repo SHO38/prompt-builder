@@ -484,7 +484,16 @@ textarea { font-family: var(--font); }
   letter-spacing: 0.06em;
   margin-bottom: 7px;
 }
-.chip-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip-subhead {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-sub);
+  opacity: 0.75;
+  margin: 9px 0 5px;
+}
+.chip-subhead:first-child { margin-top: 0; }
+.chip-wrap { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+.chip-wrap:last-child { margin-bottom: 0; }
 .chip {
   padding: 4px 10px;
   border-radius: 20px;

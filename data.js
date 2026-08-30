@@ -92,6 +92,27 @@ const IMAGE_GROUPS = [
   { id: 'style',  label: 'スタイル・品質',     icon: '🎨', orders: [9, 10] },
 ];
 
+// 1フィールドのチップ数が多くなってきた場合、Notion側のTagsテキストに
+// 「■サブカテゴリ名■」という見出しトークンを挟んでおくと、チップ一覧の中に
+// クリックできない小見出しとして表示され、視覚的にグルーピングできる。
+// 例: "丸メガネ, スクエアメガネ, ■サングラス■, ティアドロップ, オーバル"
+const CHIP_SUBHEAD_RE = /^■(.+)■$/;
+function splitChipGroups(chips) {
+  const groups = [];
+  let current = { label: null, chips: [] };
+  (chips || []).forEach(function(c) {
+    const m = CHIP_SUBHEAD_RE.exec(c);
+    if (m) {
+      if (current.chips.length || current.label) groups.push(current);
+      current = { label: m[1], chips: [] };
+    } else {
+      current.chips.push(c);
+    }
+  });
+  if (current.chips.length || current.label) groups.push(current);
+  return groups;
+}
+
 function buildImageCatsFromTags(tagRows) {
   const byOrder = {};
   (tagRows || []).forEach(function(row) {
@@ -108,9 +129,13 @@ function buildImageCatsFromTags(tagRows) {
       if (!bucket) return;
       const rows = bucket.rows.slice().sort(function(a, b){ return a.fieldOrder - b.fieldOrder; });
       rows.forEach(function(r) {
+        // チップに「■見出し■」トークンが混じっていれば、選択可能なチップ本体（chips）と
+        // 表示用のグルーピング情報（chipGroups）に分離する。トークン自体は選択肢に残さない。
+        const chipGroups = splitChipGroups(r.chips);
+        const cleanChips = chipGroups.reduce(function(a, g){ return a.concat(g.chips); }, []);
         // groupLabelは元カテゴリ名（タブ内の小見出しに使う）、categoryOrderはAnimaの行分け等に使う
         fieldDefs.push({
-          key: r.fieldKey, label: r.label, chips: r.chips, single: !!r.single,
+          key: r.fieldKey, label: r.label, chips: cleanChips, chipGroups: chipGroups, single: !!r.single,
           categoryOrder: co, groupLabel: bucket.majorCategory,
         });
       });
