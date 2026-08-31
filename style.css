@@ -463,32 +463,46 @@ textarea { font-family: var(--font); }
 /* ── カテゴリコンテンツ ─────────────────────────────────────────── */
 .cat-content { padding: 16px 20px; }
 
-/* 複数の元カテゴリを1つのタブにまとめた場合の小見出し（例: 「キャラクター」タブ内の
-   「顔・目・表情」「髪型・髪色」の区切り） */
+/* 大カテゴリ：複数の元カテゴリを1つのタブにまとめた場合の区切り（例: 「キャラクター」タブ内の
+   「顔・目・表情」「髪型・髪色」の区切り）。カテゴリ（field-label）やサブカテゴリ
+   （chip-subhead）と混同しないよう、帯状の背景＋左アクセントバーで「一段上の区切り」だと
+   分かる見た目にしている。 */
 .subcat-heading {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--accent);
-  margin: 18px 0 10px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--accent)25;
+  margin: 22px 0 12px;
+  padding: 7px 10px;
+  background: rgba(194, 59, 114, 0.07); /* var(--accent)にアルファ付き16進を直接続ける書き方は
+    このコードベースの既存箇所（.cat-tab.active等）でも実際には効いていないため、rgba()で明示 */
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
 }
 .subcat-heading:first-child { margin-top: 0; }
 
 .field { margin-bottom: 16px; }
+/* カテゴリ：個々のフィールド名。地の文字のまま、大カテゴリ（帯状）・サブカテゴリ
+   （塗りつぶしピル）とは違う「見出しらしいプレーンな文字」の見た目に留める。 */
 .field-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-sub);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 7px;
 }
+/* サブカテゴリ：1フィールド内のチップのグルーピング見出し。地の文字だと上のfield-labelと
+   紛らわしいため、タグと同系統の塗りつぶしピル形状にして「チップ一覧内の区切り」だと
+   一目で分かるようにしている。 */
 .chip-subhead {
+  display: inline-block;
   font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-sub);
-  opacity: 0.75;
+  color: var(--accent);
+  background: rgba(194, 59, 114, 0.09);
+  border: 1px solid rgba(194, 59, 114, 0.35);
+  border-radius: 20px;
+  padding: 3px 10px;
   margin: 9px 0 5px;
 }
 .chip-subhead:first-child { margin-top: 0; }
