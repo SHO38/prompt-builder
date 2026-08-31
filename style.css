@@ -481,29 +481,26 @@ textarea { font-family: var(--font); }
 .subcat-heading:first-child { margin-top: 0; }
 
 .field { margin-bottom: 16px; }
-/* カテゴリ：個々のフィールド名。地の文字のまま、大カテゴリ（帯状）・サブカテゴリ
-   （塗りつぶしピル）とは違う「見出しらしいプレーンな文字」の見た目に留める。 */
+/* カテゴリ：個々のフィールド名。下線を引いて「ここからひとつの項目が始まる」区切りを
+   明確にする。 */
 .field-label {
   font-size: 11.5px;
   font-weight: 700;
   color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 7px;
+  padding-bottom: 6px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--border);
 }
-/* サブカテゴリ：1フィールド内のチップのグルーピング見出し。地の文字だと上のfield-labelと
-   紛らわしいため、タグと同系統の塗りつぶしピル形状にして「チップ一覧内の区切り」だと
-   一目で分かるようにしている。 */
+/* サブカテゴリ：1フィールド内のチップのグルーピング見出し。チップそのものと紛れないよう
+   ピル形状はやめ、文字のみ（太字＋アクセントカラー＋やや大きめ）で目立たせる。 */
 .chip-subhead {
-  display: inline-block;
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
   color: var(--accent);
-  background: rgba(194, 59, 114, 0.09);
-  border: 1px solid rgba(194, 59, 114, 0.35);
-  border-radius: 20px;
-  padding: 3px 10px;
-  margin: 9px 0 5px;
+  letter-spacing: 0.02em;
+  margin: 10px 0 5px;
 }
 .chip-subhead:first-child { margin-top: 0; }
 .chip-wrap { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
