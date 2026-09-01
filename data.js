@@ -79,17 +79,20 @@ function personSummaryText(p, imageCats) {
 
 // Notion Tagsデータベースの行配列（Workerの /api/tags が返す形）を、
 // アプリで使うタブ（5グループ）に組み立てる。
-// 元の10カテゴリ（categoryOrder 1〜10）はタグの粒度としては維持しつつ、
+// 元の12カテゴリ（categoryOrder 1〜12）はタグの粒度としては維持しつつ、
 // UI上は近い性質のもの同士を1つのタブにまとめて表示する:
-//   キャラクター(1-3) / 衣装(4-5) / ポーズ・構図・視点(6) / シーン(7-8) / スタイル・品質(9-10)
-// 1〜6が「人物ごと」に選ぶグループ（isPerson: true）、7〜10が共通グループ。
-const PERSON_CATEGORY_MAX_ORDER = 6;
+//   キャラクター(1-3) / 衣装(4-7) / ポーズ・構図・視点(8) / シーン(9-10) / スタイル・品質(11-12)
+// ※衣装・ファッション(旧4)を「衣装 ベース/ユニフォーム/オプション」(4-6)に分割した際、
+//   アクセサリー・小物(旧5)以降のcategoryOrderが全て+2された。それに伴いこのマッピングも
+//   ズレるため、Notion側でカテゴリ構成やCategoryOrderを変更した場合はここも要更新。
+// 1〜8が「人物ごと」に選ぶグループ（isPerson: true）、9〜12が共通グループ。
+const PERSON_CATEGORY_MAX_ORDER = 8;
 const IMAGE_GROUPS = [
   { id: 'char',   label: 'キャラクター',      icon: '👤', orders: [1, 2, 3] },
-  { id: 'outfit', label: '衣装',              icon: '👗', orders: [4, 5] },
-  { id: 'pose',   label: 'ポーズ・構図・視点', icon: '🕺', orders: [6] },
-  { id: 'scene',  label: 'シーン',            icon: '🏙️', orders: [7, 8] },
-  { id: 'style',  label: 'スタイル・品質',     icon: '🎨', orders: [9, 10] },
+  { id: 'outfit', label: '衣装',              icon: '👗', orders: [4, 5, 6, 7] },
+  { id: 'pose',   label: 'ポーズ・構図・視点', icon: '🕺', orders: [8] },
+  { id: 'scene',  label: 'シーン',            icon: '🏙️', orders: [9, 10] },
+  { id: 'style',  label: 'スタイル・品質',     icon: '🎨', orders: [11, 12] },
 ];
 
 // 1フィールドのチップ数が多くなってきた場合、Notion側のTagsテキストに
@@ -161,9 +164,9 @@ function animaBuild(form) {
   const cats = form.imageCats || [];
   const personDefs = personFieldDefs(cats);
   const appearanceKeys = personDefs.filter(function(d){ return d.categoryOrder <= 3 && d.key !== 'personType'; }).map(function(d){ return d.key; });
-  const outfitKeys     = personDefs.filter(function(d){ return d.categoryOrder === 4 || d.categoryOrder === 5; }).map(function(d){ return d.key; });
-  // ポーズ・構図・視点（カテゴリ6）は服装とは別行にし、人物ごとに指定できるようにする
-  const poseKeys        = personDefs.filter(function(d){ return d.categoryOrder === 6; }).map(function(d){ return d.key; });
+  const outfitKeys     = personDefs.filter(function(d){ return d.categoryOrder >= 4 && d.categoryOrder <= 7; }).map(function(d){ return d.key; });
+  // ポーズ・構図・視点（カテゴリ8）は服装とは別行にし、人物ごとに指定できるようにする
+  const poseKeys        = personDefs.filter(function(d){ return d.categoryOrder === 8; }).map(function(d){ return d.key; });
 
   const people = (form.people && form.people.length > 0) ? form.people : [mkPerson(cats)];
   const count  = people.length;
@@ -221,16 +224,16 @@ function animaBuild(form) {
   }
 
   // 人物以外の各グループ（シーン／スタイル・品質など）をグループ順のまま1行ずつ出力。
-  // ただし quality フィールド（先頭のQで処理済み）と、元カテゴリ10（品質・質感・レンダリング）の
+  // ただし quality フィールド（先頭のQで処理済み）と、元カテゴリ12（品質・質感・レンダリング）の
   // quality以外のフィールド（リアル質感向上タグ等）はここでは除外し、末尾にまとめる。
-  // 「スタイル・品質」タブは元カテゴリ9と10がまとまっているため、フィールド単位で振り分ける。
+  // 「スタイル・品質」タブは元カテゴリ11と12がまとまっているため、フィールド単位で振り分ける。
   var globalLines = [];
   var qualityExtra = [];
   cats.filter(function(c){ return !c.isPerson; }).forEach(function(c) {
     var vals = [];
     c.fields.forEach(function(f) {
       if (f.key === 'quality') return;
-      if (f.categoryOrder === 10) { qualityExtra = qualityExtra.concat(fGet(form, f.key)); return; }
+      if (f.categoryOrder === 12) { qualityExtra = qualityExtra.concat(fGet(form, f.key)); return; }
       vals = vals.concat(fGet(form, f.key));
     });
     if (vals.length) globalLines.push(vals.join(", "));
