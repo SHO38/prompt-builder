@@ -1,4 +1,4 @@
-// ── 設定 ───────────────────────────────────────────────────────
+﻿// ── 設定 ───────────────────────────────────────────────────────
 const WORKER_URL = 'https://prompt-builder.corgi-orchestra-account.workers.dev';
 
 const GEMINI_MODELS = [
@@ -609,6 +609,24 @@ function updateChipUI(key) {
   document.querySelectorAll('[data-chip-key="'+key+'"]').forEach(function(btn) {
     btn.classList.toggle('chip-on', chips.indexOf(btn.dataset.chipVal) >= 0);
   });
+  syncFieldBadge(document.querySelector('.field-label[data-field-toggle="'+key+'"]'), chips.length);
+}
+
+// フィールド見出しの選択数バッジを、チップの再描画なしに同期する
+// （軽量パッチ経路 updateChipUI / updatePersonChipUI の共通処理）
+function syncFieldBadge(label, count) {
+  if (!label) return;
+  let badge = label.querySelector('.field-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'field-badge';
+      label.insertBefore(badge, label.querySelector('i'));
+    }
+    badge.textContent = count;
+  } else if (badge) {
+    badge.remove();
+  }
 }
 
 function updatePersonChipUI(personIdx, key) {
@@ -623,6 +641,7 @@ function updatePersonChipUI(personIdx, key) {
     // ここでもinlineスタイルを同期して即座に見た目へ反映する。
     btn.style.cssText = on ? ('border-color:'+color+';color:'+color+';background:'+color+'18;') : '';
   });
+  syncFieldBadge(document.querySelector('#person-sect-'+personIdx+' .field-label[data-field-toggle="'+key+'"]'), chips.length);
 }
 
 // ── テンプレート適用 ─────────────────────────────────────────────
@@ -768,57 +787,26 @@ function renderTemplateBar() {
   }
   if (bar) bar.classList.remove('hidden');
   if (!list) return;
+  // 登録・編集・削除はタグ標本帳（Notion連携の管理用アーティファクト）で行う方針のため、
+  // ここでは選択のみ（テンプレートの追加・編集ボタンは置かない）。
   list.innerHTML = notionTpls.map(function(t) {
     const isActive = state.activeTpl[cat] === t.id;
     const hasImg   = !!t.image;
     const isFree   = !!(t.promptText && t.promptText.trim());
     // 選択中のものはクリックで解除できることをタイトルで示す
     const titleAttr = isActive ? ' title="クリックして選択解除"' : (isFree ? ' title="自由記述テンプレート"' : '');
-    return '<div class="tpl-btn-wrap">' +
-      '<button class="tpl-btn'+(isActive?' tpl-on':'')+'" data-tpl-id="'+t.id+'"'+titleAttr+'>' +
+    return '<button class="tpl-btn'+(isActive?' tpl-on':'')+'" data-tpl-id="'+t.id+'"'+titleAttr+'>' +
       (hasImg ? '<img class="tpl-img" src="'+t.image+'" alt="'+t.label+'" data-lbl="'+t.label+'" onclick="event.stopPropagation();showImgModal(this.src,this.dataset.lbl)" />' : '') +
       (isActive ? '<i class="ti ti-x"></i>' : '')+t.label +
       (isFree ? '<span class="tpl-free-badge">文</span>' : '') +
-      '</button>' +
-      '<button class="tpl-edit-btn" data-tpl-edit-id="'+t.id+'" title="編集（削除もここから）"><i class="ti ti-pencil"></i></button>' +
-      '</div>';
-  }).join('') +
-  '<button class="tpl-btn tpl-add-btn" id="btn-tpl-register"><i class="ti ti-plus"></i>登録</button>';
-  list.querySelectorAll('.tpl-btn:not(.tpl-add-btn)').forEach(function(btn) {
+      '</button>';
+  }).join('');
+  list.querySelectorAll('.tpl-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       const tpl = notionTpls.find(function(t){ return t.id===btn.dataset.tplId; });
       if (tpl) applyTemplate(tpl);
     });
   });
-  list.querySelectorAll('[data-tpl-edit-id]').forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      const tpl = notionTpls.find(function(t){ return t.id === btn.dataset.tplEditId; });
-      if (tpl) openTplRegisterModal(tpl);
-    });
-  });
-  const regBtn = document.getElementById('btn-tpl-register');
-  if (regBtn) regBtn.addEventListener('click', function(){ openTplRegisterModal(); });
-}
-
-// テンプレート削除（編集モーダル内の削除ボタンから呼ばれる）。
-// Notion側では完全削除ではなくアーカイブ扱いになる（ゴミ箱から復元可能）。
-async function deleteTemplate(tpl) {
-  if (!confirm('テンプレート「'+tpl.label+'」を削除しますか？')) return;
-  try {
-    await apiCall('/api/templates?id=' + encodeURIComponent(tpl.id), 'DELETE');
-    // 削除したテンプレートが選択中だった場合は選択状態も解除しておく
-    if (state.activeTpl[tpl.category] === tpl.id) {
-      state.activeTpl = Object.assign({}, state.activeTpl);
-      delete state.activeTpl[tpl.category];
-    }
-    showToast('テンプレートを削除しました', 'info');
-    closeTplRegisterModal();
-    await loadTemplates();
-    renderOutputPanel();
-  } catch(e) {
-    showToast('削除に失敗しました: ' + e.message, 'error');
-  }
 }
 
 // ── フルプリセット ───────────────────────────────────────────────
@@ -1023,10 +1011,25 @@ function renderCatContent() {
       toggleChip(btn.dataset.chipKey, btn.dataset.chipVal, btn.dataset.single === '1');
     });
   });
+  content.querySelectorAll('[data-field-toggle]').forEach(function(label) {
+    label.addEventListener('click', function() {
+      const key = label.dataset.fieldToggle;
+      const wasOpen = fieldCollapsed[key] === false;
+      fieldCollapsed = {}; // アコーディオン: 開くのは常に最大1つ
+      if (!wasOpen) fieldCollapsed[key] = false;
+      renderCatContent();
+    });
+  });
 }
+
+// 項目数が多いため、カテゴリ（フィールド）は既定で折りたたんでおき、名前をタップした
+// ものだけを開く（アコーディオン動作）。キーはフィールド全体でユニークなので、
+// タブをまたいでも「同時に開いているのは最大1つ」というシンプルな状態管理にしている。
+let fieldCollapsed = {};
 
 function renderFieldHTML(f) {
   const chips = (state.form[f.key] && state.form[f.key].chips) || [];
+  const collapsed = fieldCollapsed[f.key] !== false;
   const groups = (f.chipGroups && f.chipGroups.length) ? f.chipGroups : [{ label: null, chips: f.chips||[] }];
   const chipsHTML = groups.map(function(g) {
     const headHTML = g.label ? '<div class="chip-subhead">'+g.label+'</div>' : '';
@@ -1037,7 +1040,12 @@ function renderFieldHTML(f) {
   }).join('');
   const textHTML = f.ph !== undefined ?
     '<textarea class="neg-input" data-field-key="'+f.key+'" placeholder="'+f.ph+'" rows="2"></textarea>' : '';
-  return '<div class="field"><div class="field-label">'+f.label+'</div>'+chipsHTML+textHTML+'</div>';
+  const badge = chips.length>0 ? '<span class="field-badge">'+chips.length+'</span>' : '';
+  return '<div class="field'+(collapsed?' field-collapsed':'')+'">' +
+    '<div class="field-label" data-field-toggle="'+f.key+'">'+f.label+badge+
+      '<i class="ti '+(collapsed?'ti-chevron-down':'ti-chevron-up')+'"></i></div>' +
+    '<div class="field-body">'+chipsHTML+textHTML+'</div>' +
+  '</div>';
 }
 
 // 複数の元カテゴリを1つのタブにまとめているグループ（例: キャラクター＝基本+顔目表情+髪型髪色）では、
@@ -1083,6 +1091,11 @@ function renderPeopleForm(container, catDef) {
   }
 }
 
+// 複数人フォームの各フィールドも既定で折りたたむ。開閉状態は人物ごと（idx）に持ち、
+// 同じフィールドキーが複数人で使い回されても互いに干渉しないようにする。
+// 値: personFieldOpen[idx] = 現在開いているフィールドキー（なければ全て閉じている）
+let personFieldOpen = {};
+
 function renderPersonSect(idx, catDef) {
   const container = document.getElementById('person-sect-'+idx);
   if (!container || !catDef) return;
@@ -1094,6 +1107,7 @@ function renderPersonSect(idx, catDef) {
   const fieldsHTML = renderFieldsWithHeadings(fields, function(cfg) {
     const key = cfg.key;
     const cur = cfg.single ? (p[key] ? [p[key]] : []) : (Array.isArray(p[key]) ? p[key] : []);
+    const collapsed = personFieldOpen[idx] !== key;
     const groups = (cfg.chipGroups && cfg.chipGroups.length) ? cfg.chipGroups : [{ label: null, chips: cfg.chips||[] }];
     const chipsHTML = groups.map(function(g) {
       const headHTML = g.label ? '<div class="chip-subhead">'+g.label+'</div>' : '';
@@ -1103,7 +1117,12 @@ function renderPersonSect(idx, catDef) {
       }).join('');
       return headHTML+'<div class="chip-wrap">'+btnsHTML+'</div>';
     }).join('');
-    return '<div class="field"><div class="field-label">'+cfg.label+'</div>'+chipsHTML+'</div>';
+    const badge = cur.length>0 ? '<span class="field-badge">'+cur.length+'</span>' : '';
+    return '<div class="field'+(collapsed?' field-collapsed':'')+'">' +
+      '<div class="field-label" data-field-toggle="'+key+'">'+cfg.label+badge+
+        '<i class="ti '+(collapsed?'ti-chevron-down':'ti-chevron-up')+'"></i></div>' +
+      '<div class="field-body">'+chipsHTML+'</div>' +
+    '</div>';
   });
 
   const collapsed = !!personCollapsed[idx];
@@ -1136,6 +1155,7 @@ function renderPersonSect(idx, catDef) {
     removeEl.addEventListener('click', function() {
       state.people.splice(idx, 1);
       personCollapsed = {}; // インデックスがずれるため折りたたみ状態は一旦リセット
+      personFieldOpen = {};
       resetAll();
       const content = document.getElementById('cat-content');
       renderPeopleForm(content, catDef);
@@ -1146,6 +1166,14 @@ function renderPersonSect(idx, catDef) {
   container.querySelectorAll('[data-p]').forEach(function(btn) {
     btn.addEventListener('click', function(){
       togglePersonChip(idx, btn.dataset.chipKey, btn.dataset.chipVal, btn.dataset.single==='1');
+    });
+  });
+  container.querySelectorAll('[data-field-toggle]').forEach(function(label) {
+    label.addEventListener('click', function() {
+      const key = label.dataset.fieldToggle;
+      const wasOpen = personFieldOpen[idx] === key;
+      personFieldOpen[idx] = wasOpen ? null : key;
+      renderPersonSect(idx, catDef);
     });
   });
 }
@@ -1475,146 +1503,6 @@ async function deleteHistoryItem(idx) {
   }
 }
 
-// ── テンプレート登録 ─────────────────────────────────────────────
-let tplImageFile = null;
-let editingTpl = null; // 編集中のテンプレート（nullなら新規登録モード）
-
-// tplを渡すと編集モード（既存の内容をフォームに読み込み、削除ボタンも表示する）、
-// 渡さなければ新規登録モードで開く。
-function openTplRegisterModal(tpl) {
-  const nameInput = document.getElementById('tpl-name');
-  const catSelect = document.getElementById('tpl-category');
-  const modelSelect = document.getElementById('tpl-model');
-  const promptTextarea = document.getElementById('tpl-prompt-text');
-  const fileInput = document.getElementById('tpl-image-file');
-  const preview = document.getElementById('tpl-image-preview');
-  const currentNote = document.getElementById('tpl-image-current-note');
-  const status = document.getElementById('tpl-save-status');
-  const titleText = document.getElementById('tpl-modal-title-text');
-  const saveBtnText = document.getElementById('tpl-save-btn-text');
-  const deleteBtn = document.getElementById('btn-tpl-delete');
-  if (!nameInput || !catSelect || !modelSelect || !promptTextarea || !fileInput) return;
-
-  editingTpl = tpl || null;
-
-  // カテゴリ・モデルの一覧はモデル・モードによって変わる動的な値なので、開くたびに作り直す
-  const cats = getModel().cats;
-  catSelect.innerHTML = cats.map(function(c) {
-    return '<option value="'+c.id+'">'+c.label+'</option>';
-  }).join('');
-
-  const models = getModels();
-  modelSelect.innerHTML = Object.values(models).map(function(m) {
-    return '<option value="'+m.id+'">'+m.name+'</option>';
-  }).join('');
-
-  fileInput.value = '';
-  tplImageFile = null;
-  if (status) { status.textContent = ''; status.style.color = ''; }
-
-  if (editingTpl) {
-    if (titleText) titleText.textContent = 'テンプレート編集';
-    if (saveBtnText) saveBtnText.textContent = '更新';
-    nameInput.value = editingTpl.label || '';
-    // 旧カテゴリ体系（character/outfit等）で登録されたテンプレートは新カテゴリIDに読み替える
-    catSelect.value = LEGACY_CAT_MAP[editingTpl.category] || editingTpl.category;
-    if (catSelect.selectedIndex < 0) catSelect.selectedIndex = 0;
-    modelSelect.value = editingTpl.model || state.modelId;
-    if (modelSelect.selectedIndex < 0) modelSelect.selectedIndex = 0;
-    promptTextarea.value = editingTpl.promptText || '';
-    if (editingTpl.image) {
-      if (preview) { preview.src = editingTpl.image; preview.classList.remove('hidden'); }
-      if (currentNote) currentNote.classList.remove('hidden');
-    } else {
-      if (preview) preview.classList.add('hidden');
-      if (currentNote) currentNote.classList.add('hidden');
-    }
-    if (deleteBtn) deleteBtn.classList.remove('hidden');
-  } else {
-    if (titleText) titleText.textContent = 'テンプレート登録';
-    if (saveBtnText) saveBtnText.textContent = '保存';
-    nameInput.value = '';
-    catSelect.value = state.activeCat;
-    promptTextarea.value = '';
-    if (preview) preview.classList.add('hidden');
-    if (currentNote) currentNote.classList.add('hidden');
-    if (deleteBtn) deleteBtn.classList.add('hidden');
-  }
-
-  document.getElementById('tpl-modal-overlay').classList.remove('hidden');
-  nameInput.focus();
-}
-
-function closeTplRegisterModal() {
-  const overlay = document.getElementById('tpl-modal-overlay');
-  if (overlay) overlay.classList.add('hidden');
-  editingTpl = null;
-}
-
-async function saveNewTemplate() {
-  const nameInput = document.getElementById('tpl-name');
-  const catSelect = document.getElementById('tpl-category');
-  const modelSelect = document.getElementById('tpl-model');
-  const promptTextarea = document.getElementById('tpl-prompt-text');
-  const status = document.getElementById('tpl-save-status');
-  const saveBtn = document.getElementById('btn-tpl-save');
-  if (!nameInput || !catSelect || !modelSelect || !promptTextarea) return;
-
-  const name = nameInput.value.trim();
-  const category = catSelect.value;
-  const model = modelSelect.value;
-  const promptText = promptTextarea.value.trim();
-  const isEdit = !!editingTpl;
-
-  if (!name || !promptText) {
-    if (status) { status.style.color = '#DC2626'; status.textContent = '名前とプロンプト文章は必須です'; }
-    return;
-  }
-
-  if (saveBtn) saveBtn.disabled = true;
-  if (status) { status.style.color = ''; status.textContent = (isEdit?'更新中…':'保存中…'); }
-
-  try {
-    let fileUploadId = null, fileName = null;
-    if (tplImageFile) {
-      if (status) status.textContent = '画像をアップロード中…';
-      const fd = new FormData();
-      fd.append('file', tplImageFile, tplImageFile.name);
-      const res = await fetch(WORKER_URL + '/api/upload-image', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error('画像アップロードに失敗しました');
-      fileUploadId = data.fileUploadId;
-      fileName = data.filename;
-    }
-
-    if (isEdit) {
-      if (status) status.textContent = 'テンプレートを更新中…';
-      const result = await apiCall('/api/templates?id=' + encodeURIComponent(editingTpl.id), 'PATCH', {
-        label: name, category: category, model: model,
-        promptText: promptText, fileUploadId: fileUploadId, fileName: fileName,
-      });
-      if (result.error) throw new Error(typeof result.error === 'string' ? result.error : 'Notionの更新に失敗しました');
-      if (status) { status.style.color = '#16A34A'; status.textContent = '更新しました ✓'; }
-    } else {
-      if (status) status.textContent = 'テンプレートを保存中…';
-      const result = await apiCall('/api/templates', 'POST', {
-        label: name, category: category, model: model,
-        promptText: promptText, fileUploadId: fileUploadId, fileName: fileName,
-      });
-      if (result.error) throw new Error(typeof result.error === 'string' ? result.error : 'Notionへの保存に失敗しました');
-      if (status) { status.style.color = '#16A34A'; status.textContent = '保存しました ✓'; }
-    }
-
-    await loadTemplates();
-    renderOutputPanel();
-    setTimeout(closeTplRegisterModal, 800);
-  } catch(e) {
-    if (status) { status.style.color = '#DC2626'; status.textContent = (isEdit?'更新':'保存')+'に失敗しました: ' + e.message; }
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-  }
-}
-
 function showImgModal(src, label) {
   document.getElementById('modal-img').src   = src;
   document.getElementById('modal-label').textContent = label;
@@ -1700,38 +1588,6 @@ document.addEventListener('DOMContentLoaded', async function() {
   });
   document.getElementById('modal-overlay').addEventListener('click', function(e) {
     if (e.target===e.currentTarget) document.getElementById('modal-overlay').classList.add('hidden');
-  });
-
-  // テンプレート登録モーダル
-  const tplModalClose = document.getElementById('tpl-modal-close');
-  if (tplModalClose) tplModalClose.addEventListener('click', closeTplRegisterModal);
-  const tplModalOverlay = document.getElementById('tpl-modal-overlay');
-  if (tplModalOverlay) tplModalOverlay.addEventListener('click', function(e) {
-    if (e.target === e.currentTarget) closeTplRegisterModal();
-  });
-  const btnTplSave = document.getElementById('btn-tpl-save');
-  if (btnTplSave) btnTplSave.addEventListener('click', saveNewTemplate);
-  const btnTplDelete = document.getElementById('btn-tpl-delete');
-  if (btnTplDelete) btnTplDelete.addEventListener('click', function() {
-    if (editingTpl) deleteTemplate(editingTpl);
-  });
-  const tplImageInput = document.getElementById('tpl-image-file');
-  if (tplImageInput) tplImageInput.addEventListener('change', function(e) {
-    const f = e.target.files[0];
-    tplImageFile = f || null;
-    const preview = document.getElementById('tpl-image-preview');
-    const currentNote = document.getElementById('tpl-image-current-note');
-    if (!preview) return;
-    if (f) {
-      // 新しい画像を選んだら「現在の画像です」の注記は消す（プレビューは新しい画像に置き換わるため）
-      if (currentNote) currentNote.classList.add('hidden');
-      const reader = new FileReader();
-      reader.onload = function(ev) { preview.src = ev.target.result; preview.classList.remove('hidden'); };
-      reader.readAsDataURL(f);
-    } else {
-      preview.classList.add('hidden');
-      if (currentNote && editingTpl && editingTpl.image) currentNote.classList.remove('hidden');
-    }
   });
 
   // プリセット保存モーダル

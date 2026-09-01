@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -333,37 +333,6 @@
   <!-- フッター -->
   <div class="footer">
     <button class="btn-clear" id="btn-clear">すべてクリア</button>
-  </div>
-
-  <!-- テンプレート登録モーダル -->
-  <div class="modal-overlay hidden" id="tpl-modal-overlay">
-    <div class="modal tpl-register-modal">
-      <button class="modal-close" id="tpl-modal-close"><i class="ti ti-x"></i></button>
-      <div class="tpl-modal-title"><i class="ti ti-layout-grid"></i> <span id="tpl-modal-title-text">テンプレート登録</span></div>
-      <div class="tpl-form">
-        <label class="tpl-field-label" for="tpl-name">名前</label>
-        <input type="text" id="tpl-name" class="tpl-input" placeholder="例）夕暮れの海辺の少女" />
-
-        <label class="tpl-field-label" for="tpl-category">カテゴリ</label>
-        <select id="tpl-category" class="tpl-input"></select>
-
-        <label class="tpl-field-label" for="tpl-model">モデル</label>
-        <select id="tpl-model" class="tpl-input"></select>
-        <div class="tpl-model-note">※ここで選んだモデルに保存されますが、同じモード（画像/動画）内の他のモデルからも使えます</div>
-
-        <label class="tpl-field-label" for="tpl-prompt-text">プロンプト文章（自由記述）</label>
-        <textarea id="tpl-prompt-text" class="tpl-input" rows="4" placeholder="タグに縛られず、自由に文章で書いてください"></textarea>
-
-        <label class="tpl-field-label" for="tpl-image-file">画像（任意）</label>
-        <input type="file" id="tpl-image-file" class="tpl-input" accept="image/*" />
-        <img id="tpl-image-preview" class="tpl-image-preview hidden" alt="プレビュー" />
-        <div class="tpl-image-current-note hidden" id="tpl-image-current-note">現在の画像です。変更する場合のみ新しい画像を選択してください</div>
-
-        <button class="btn-tpl-save" id="btn-tpl-save"><i class="ti ti-device-floppy"></i> <span id="tpl-save-btn-text">保存</span></button>
-        <button class="btn-tpl-delete hidden" id="btn-tpl-delete"><i class="ti ti-trash"></i> このテンプレートを削除</button>
-        <div class="tpl-save-status" id="tpl-save-status"></div>
-      </div>
-    </div>
   </div>
 
   <!-- プリセット保存モーダル -->
